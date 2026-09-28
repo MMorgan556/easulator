@@ -1,0 +1,103 @@
+:root {
+  --bg: #eef0f4;
+  --panel: #ffffff;
+  --key: #f3f4f7;
+  --key-hover: #e6e8ee;
+  --fn: #dde1e8;
+  --op: #ff9f0a;
+  --op-text: #ffffff;
+  --text: #1c1e22;
+  --muted: #6b7280;
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214;
+    --panel: #1c1d20;
+    --key: #2a2c30;
+    --key-hover: #35383d;
+    --fn: #4a4d53;
+    --text: #f4f5f7;
+    --muted: #9aa0a8;
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.calculator {
+  width: 100%;
+  max-width: 340px;
+  padding: 20px;
+  border-radius: 24px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.display {
+  display: block;
+  padding: 8px 8px 20px;
+  text-align: right;
+  overflow: hidden;
+}
+
+.expression {
+  min-height: 1.4em;
+  color: var(--muted);
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+}
+
+.current {
+  font-size: 3rem;
+  font-weight: 300;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow-x: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.current.small { font-size: 2rem; }
+.current.error { font-size: 1.4rem; color: #e5484d; }
+
+.keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.key {
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: 50%;
+  background: var(--key);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.06s;
+}
+
+.key:hover { background: var(--key-hover); }
+.key:active, .key.pressed { transform: scale(0.94); }
+.key:focus-visible { outline: 3px solid var(--op); outline-offset: 2px; }
+
+.key.fn { background: var(--fn); font-size: 1.25rem; }
+.key.op, .key.eq { background: var(--op); color: var(--op-text); font-size: 1.75rem; }
+.key.op:hover, .key.eq:hover { filter: brightness(1.08); }
+.key.op.active { background: var(--op-text); color: var(--op); }
