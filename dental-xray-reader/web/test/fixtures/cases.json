@@ -309,6 +309,42 @@
   "tolerance": 0
  },
  {
+  "name": "voi_lut_empty",
+  "file": "voi_lut_empty.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "voi_lut_incomplete",
+  "file": "voi_lut_incomplete.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "modality_lut_empty",
+  "file": "modality_lut_empty.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "voi_lut_signed",
+  "file": "voi_lut_signed.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
   "name": "gray_png",
   "file": "gray_png.png",
   "width": 96,

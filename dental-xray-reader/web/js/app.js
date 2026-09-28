@@ -239,19 +239,23 @@ async function runAi() {
   try {
     state.ai.detector ||= new Detector(manifest, new URL("./ai-worker.js", import.meta.url));
     const { detections, milliseconds } = await state.ai.detector.detect(image);
-    if (state.image !== image) return; // another X-ray was opened meanwhile; these results are stale
-    state.toothDetections = detections.filter((d) => d.type === "tooth");
-    state.otherDetections = detections.filter((d) => d.type !== "tooth");
-    applyDetections();
-    state.ai.lastRun = { milliseconds, count: state.findings.filter((f) => f.source === "ai").length };
-    const n = state.ai.lastRun.count;
-    const teeth = state.teeth.length;
-    toast(`AI suggested ${n} finding${n === 1 ? "" : "s"} and found ${teeth} ${teeth === 1 ? "tooth" : "teeth"} in ${(milliseconds / 1000).toFixed(1)} s. Review each suggestion.`);
+    // Only apply results to the X-ray they were computed for (another may have been opened).
+    if (state.image === image) {
+      state.toothDetections = detections.filter((d) => d.type === "tooth");
+      state.otherDetections = detections.filter((d) => d.type !== "tooth");
+      applyDetections();
+      state.ai.lastRun = { milliseconds, count: state.findings.filter((f) => f.source === "ai").length };
+      const n = state.ai.lastRun.count;
+      const teeth = state.teeth.length;
+      toast(`AI suggested ${n} finding${n === 1 ? "" : "s"} and found ${teeth} ${teeth === 1 ? "tooth" : "teeth"} in ${(milliseconds / 1000).toFixed(1)} s. Review each suggestion.`);
+    }
   } catch (err) {
     console.error(err);
-    // Start a fresh engine next time rather than reuse one that failed.
-    state.ai.detector?.terminate();
-    state.ai.detector = null;
+    // Replace the engine only if it failed as a whole; a single failed run keeps the loaded model.
+    if (state.ai.detector?.failed) {
+      state.ai.detector.terminate();
+      state.ai.detector = null;
+    }
     if (state.image === image) toast(`AI analysis failed: ${err.message}`, "error");
   } finally {
     state.ai.running = false;

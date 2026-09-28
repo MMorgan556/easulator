@@ -212,6 +212,29 @@ def main() -> None:
     ds.VOILUTSequence = [item]
     save("voi_lut_invalid", ds, cases=cases)
 
+    # Empty sequences count as absent; an item without LUT data falls back to the window.
+    from pydicom.sequence import Sequence
+
+    ds = dataset(p12, WindowCenter=1500, WindowWidth=1200)
+    ds.VOILUTSequence = Sequence([])
+    save("voi_lut_empty", ds, cases=cases)
+    ds = dataset(p12, WindowCenter=1500, WindowWidth=1200)
+    item = Dataset()
+    item.LUTDescriptor = [4096, 0, 16]
+    ds.VOILUTSequence = [item]
+    save("voi_lut_incomplete", ds, cases=cases)
+    ds = dataset(p12, RescaleSlope=2, RescaleIntercept=-100)
+    ds.ModalityLUTSequence = Sequence([])
+    save("modality_lut_empty", ds, cases=cases)
+    # Signed pixels with a negative first mapped value (overflowed in int16 arithmetic before).
+    s12v = pattern(12, signed=True)
+    ds = dataset(s12v)
+    item = Dataset()
+    item.add_new(0x00283002, "SS", [4096, -2048, 16])
+    item.add_new(0x00283006, "OW", (np.arange(4096) * 16).astype("<u2").tobytes())
+    ds.VOILUTSequence = [item]
+    save("voi_lut_signed", ds, cases=cases)
+
     # Raster uploads (decoded by the browser, then Pillow's luma + percentile stretch).
     gray = Image.fromarray(pattern(8, seed=4))
     buf = io.BytesIO()

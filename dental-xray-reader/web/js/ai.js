@@ -188,6 +188,9 @@ export class Detector {
     };
     this.worker.onmessageerror = () => fail("The AI engine sent an unreadable message");
     this.ready = this.call({ type: "load", url: manifest.url });
+    this.ready.catch((err) => {
+      this.failed ||= err; // without a loaded model the engine is unusable: start over next time
+    });
   }
 
   terminate() {

@@ -74,10 +74,15 @@ export function stretchRange(values, width, height) {
   return { lo, hi };
 }
 
-export function toUint8(values, width, height) {
+/** Percentile stretch to 0-255 (app.ingest.to_uint8), with the range it used. */
+export function stretchToUint8(values, width, height) {
   const { lo, hi } = stretchRange(values, width, height);
-  if (!(hi > lo)) return new Uint8Array(values.length);
-  return mapLinear(values, lo, 255 / (hi - lo));
+  const display = hi > lo ? mapLinear(values, lo, 255 / (hi - lo)) : new Uint8Array(values.length);
+  return { display, lo, hi };
+}
+
+export function toUint8(values, width, height) {
+  return stretchToUint8(values, width, height).display;
 }
 
 /** DICOM PS3.3 C.11.2.1.2 linear window straight to 0-255. */
@@ -192,8 +197,7 @@ export function rasterToImage(rgba, width, height) {
 
 /** Grayscale samples (8- or 16-bit) to an image with the percentile-stretched display. */
 export function grayToImage(values, width, height) {
-  const { lo, hi } = stretchRange(values, width, height);
-  const display = hi > lo ? mapLinear(values, lo, 255 / (hi - lo)) : new Uint8Array(values.length);
+  const { display, lo, hi } = stretchToUint8(values, width, height);
   return {
     width,
     height,

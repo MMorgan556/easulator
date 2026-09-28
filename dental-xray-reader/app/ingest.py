@@ -84,7 +84,8 @@ def _first_value(value) -> float:
 
 def _linear_window(ds) -> tuple[float, float] | None:
     """(center, width) of a usable linear DICOM window, or None."""
-    if "VOILUTSequence" in ds or "WindowCenter" not in ds or "WindowWidth" not in ds:
+    # An empty LUT sequence counts as absent, here and below (as in pydicom's own checks).
+    if ds.get("VOILUTSequence") or "WindowCenter" not in ds or "WindowWidth" not in ds:
         return None
     if str(ds.get("VOILUTFunction", "LINEAR") or "LINEAR").upper() != "LINEAR":
         return None
@@ -111,14 +112,14 @@ def _window_to_uint8(arr: np.ndarray, center: float, width: float) -> np.ndarray
 
 def _dicom_display_pixels(arr: np.ndarray, ds, samples: int) -> np.ndarray:
     """Stored DICOM pixel values to an 8-bit display image (rescale, window, stretch)."""
-    from pydicom.pixels import apply_modality_lut, apply_voi_lut
+    from pydicom.pixels import apply_modality_lut
 
     if arr.ndim == 3 and samples > 1:
         arr = arr.mean(axis=-1, dtype=np.float32)  # colour data: collapse to grayscale
     if arr.ndim != 2:
         raise IngestError(f"Unsupported DICOM pixel array shape {arr.shape}")
 
-    if "ModalityLUTSequence" in ds:
+    if ds.get("ModalityLUTSequence"):
         arr = apply_modality_lut(arr, ds)
     else:
         # Linear rescale done in float32 in place (pydicom's version allocates float64).
@@ -132,14 +133,24 @@ def _dicom_display_pixels(arr: np.ndarray, ds, samples: int) -> np.ndarray:
     window = _linear_window(ds)
     if window is not None:
         return _window_to_uint8(arr, *window)
-    if "VOILUTSequence" in ds or str(ds.get("VOILUTFunction", "LINEAR") or "LINEAR").upper() != "LINEAR":
+    if ds.get("VOILUTSequence") or str(ds.get("VOILUTFunction", "LINEAR") or "LINEAR").upper() != "LINEAR":
         # Lookup-table or non-linear VOI. If it is malformed, show the image without it rather
         # than reject it: the percentile stretch below still gives a usable picture.
         try:
-            arr = _voi_lut_sequence(arr, ds) if ds.get("VOILUTSequence") else apply_voi_lut(arr, ds)
+            arr = _apply_voi(arr, ds)
         except Exception:
             pass
     return to_uint8(arr, overwrite=True)  # arr is this function's private working array
+
+
+def _apply_voi(arr: np.ndarray, ds) -> np.ndarray:
+    """pydicom.apply_voi_lut's choice (a complete LUT item wins, else the window), with our LUT lookup."""
+    from pydicom.pixels import apply_voi_lut
+
+    sequence = ds.get("VOILUTSequence")
+    if sequence and sequence[0].get("LUTDescriptor") is not None and sequence[0].get("LUTData") is not None:
+        return _voi_lut_sequence(arr, ds)
+    return apply_voi_lut(arr, ds)
 
 
 def _voi_lut_sequence(arr: np.ndarray, ds) -> np.ndarray:
@@ -159,7 +170,8 @@ def _voi_lut_sequence(arr: np.ndarray, ds) -> np.ndarray:
         raise NotImplementedError(f"{bits} bits per VOI LUT entry is not supported")
     element = item["LUTData"]
     if element.VR == "OW":
-        order = "<" if ds.file_meta.TransferSyntaxUID.is_little_endian else ">"
+        # The dataset's own encoding also covers files without file meta information.
+        order = ">" if ds.original_encoding[1] is False else "<"
         raw = np.frombuffer(element.value, dtype=f"{order}u2", count=entries)
     else:
         raw = np.asarray(element.value, dtype=np.int64)[:entries]
@@ -167,7 +179,8 @@ def _voi_lut_sequence(arr: np.ndarray, ds) -> np.ndarray:
         raise ValueError("VOI LUT data does not match its descriptor")
     lut = raw.astype(dtype)
     # Values below the first mapped value take entry 0; above the table, the last entry.
-    index = np.where(arr >= first_map, arr - first_map, 0)
+    values = arr.astype(np.float64)  # no integer overflow whatever first_map and the pixel dtype are
+    index = np.where(values >= first_map, values - first_map, 0)
     index = np.clip(index, 0, entries - 1).astype(np.int64)  # truncates, like pydicom's cast
     return lut[index]
 

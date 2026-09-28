@@ -44,9 +44,33 @@ function readChunks(bytes) {
   return { header, idat };
 }
 
-async function inflate(parts) {
-  const stream = new Blob(parts).stream().pipeThrough(new DecompressionStream("deflate"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+/** zlib-inflate the IDAT data, refusing to produce more than `limit` bytes (zip bombs). */
+async function inflate(parts, limit) {
+  const reader = new Blob(parts).stream().pipeThrough(new DecompressionStream("deflate")).getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > limit) {
+        await reader.cancel().catch(() => {});
+        throw new PngError("image data is larger than its header says");
+      }
+      chunks.push(value);
+    }
+  } catch (err) {
+    if (err instanceof PngError) throw err;
+    throw new PngError("image data is corrupt or incomplete");
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
 }
 
 function paeth(a, b, c) {
@@ -87,23 +111,35 @@ function unfilter(data, offset, width, height, bpp) {
   return { pixels: out, next: pos };
 }
 
+function passes(header) {
+  const list = header.interlace === 1 ? ADAM7 : [[0, 0, 1, 1]];
+  return list
+    .map(([x0, y0, dx, dy]) => ({ x0, y0, dx, dy, w: Math.ceil((header.width - x0) / dx), h: Math.ceil((header.height - y0) / dy) }))
+    .filter((p) => p.w > 0 && p.h > 0);
+}
+
 /**
  * Decode a 16-bit grayscale PNG to { width, height, values: Uint16Array }, or null if the
- * file is another kind of PNG.
+ * file is another kind of PNG. `maxPixels` is checked before any image data is expanded;
+ * `onTooLarge(width, height)` may throw its own error instead of the PngError.
  */
-export async function decodePng16(bytes) {
+export async function decodePng16(bytes, { maxPixels = Infinity, onTooLarge } = {}) {
   if (bytes.length < 8 || SIGNATURE.some((v, i) => bytes[i] !== v)) return null;
   const { header, idat } = readChunks(bytes);
   if (header.bitDepth !== 16 || header.colorType !== 0) return null;
   const { width, height } = header;
-  const data = await inflate(idat);
+  if (!width || !height) throw new PngError("image has no pixels");
+  if (width * height > maxPixels) {
+    onTooLarge?.(width, height);
+    throw new PngError(`image is too large (${width}x${height})`);
+  }
+  if (!idat.length) throw new PngError("image data is missing");
+  const layout = passes(header);
+  const expected = layout.reduce((sum, p) => sum + p.h * (1 + p.w * 2), 0);
+  const data = await inflate(idat, expected);
   const values = new Uint16Array(width * height);
-  const passes = header.interlace === 1 ? ADAM7 : [[0, 0, 1, 1]];
   let offset = 0;
-  for (const [x0, y0, dx, dy] of passes) {
-    const w = Math.ceil((width - x0) / dx);
-    const h = Math.ceil((height - y0) / dy);
-    if (w <= 0 || h <= 0) continue;
+  for (const { x0, y0, dx, dy, w, h } of layout) {
     const { pixels, next } = unfilter(data, offset, w, h, 2);
     offset = next;
     for (let y = 0; y < h; y++) {
