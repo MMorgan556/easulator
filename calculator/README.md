@@ -13,8 +13,8 @@ Open `index.html` in a browser to use it.
 
 The logic is in `calculator.js` and does not use `eval`. `app.js` connects it to the page.
 
-Run the tests with Node 18 or later:
+Run the tests with Node 18 or later. `calculator.test.js` covers the math and `keyboard.test.js` runs `app.js` against the page's buttons to check the keyboard shortcuts:
 
 ```sh
-node --test calculator/calculator.test.js
+node --test calculator/*.test.js
 ```
