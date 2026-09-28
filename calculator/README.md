@@ -16,5 +16,5 @@ The logic is in `calculator.js` and does not use `eval`. `app.js` connects it to
 Run the tests with Node 18 or later:
 
 ```sh
-node --test calculator/
+node --test calculator/calculator.test.js
 ```
