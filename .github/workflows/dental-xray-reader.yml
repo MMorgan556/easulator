@@ -1,0 +1,31 @@
+name: Dental X-ray Reader tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dental-xray-reader/**'
+      - '.github/workflows/dental-xray-reader.yml'
+  pull_request:
+    paths:
+      - 'dental-xray-reader/**'
+      - '.github/workflows/dental-xray-reader.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dental-xray-reader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: dental-xray-reader/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
