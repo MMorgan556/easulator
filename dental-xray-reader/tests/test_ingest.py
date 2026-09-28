@@ -246,3 +246,25 @@ def test_to_uint8_overwrite_matches_copy():
     kept = original.copy()
     to_uint8(original)
     assert np.array_equal(original, kept)  # default never modifies the input
+
+
+def test_8_bit_voi_lut_is_applied_correctly():
+    """pydicom's apply_voi wraps 8-bit LUT indices modulo 256; our lookup must not."""
+    import io
+
+    import pydicom
+    from pydicom.dataset import Dataset
+
+    values = np.tile(np.arange(0, 4000, 10, dtype=np.uint16), (40, 1))[:, :400]
+    ds = pydicom.dcmread(io.BytesIO(_dicom_with(values)))
+    table = np.linspace(0, 255, 2048).astype(np.uint16)  # identity-like ramp over 1000..3047
+    item = Dataset()
+    item.LUTDescriptor = [2048, 1000, 8]
+    item.add_new(0x00283006, "OW", table.astype("<u2").tobytes())
+    ds.VOILUTSequence = [item]
+    buf = io.BytesIO()
+    ds.save_as(buf)
+    pixels = load_image(buf.getvalue()).pixels[0]
+    assert pixels[values[0] <= 1000].max() == 0
+    assert pixels[values[0] >= 3047].min() == 255
+    assert len(np.unique(pixels)) > 100  # a real ramp, not a handful of wrapped levels

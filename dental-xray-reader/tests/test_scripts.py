@@ -84,3 +84,35 @@ def test_prepare_dataset_reports_name_collisions(tmp_path):
     written, failures = prepare.export(tmp_path / "raw", tmp_path / "out")
     assert written == 1
     assert len(failures) == 1 and "already exports to scan.png" in failures[0]
+
+
+def test_export_for_web_writes_manifest(tmp_path):
+    import json
+
+    train = load_script("train_yolo")
+    onnx_file = tmp_path / "best.onnx"
+    onnx_file.write_bytes(b"onnx")
+
+    class FakeYolo:
+        names = {0: "tooth", 1: "caries"}
+
+        def export(self, **kwargs):
+            assert kwargs == {"format": "onnx", "imgsz": 1024, "opset": 17, "dynamic": False, "simplify": True}
+            return str(onnx_file)
+
+    manifest_path = train.export_for_web(FakeYolo(), 1024, tmp_path / "web-model", {"mAP50": 0.8})
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["available"] is True
+    assert manifest["classes"] == ["tooth", "caries"]
+    assert manifest["input_size"] == 1024 and manifest["file"] == "dental.onnx"
+    assert (tmp_path / "web-model" / "dental.onnx").read_bytes() == b"onnx"
+
+
+def test_export_for_web_rejects_unknown_classes(tmp_path):
+    train = load_script("train_yolo")
+
+    class FakeYolo:
+        names = {0: "tooth", 1: "gold_crown"}
+
+    with pytest.raises(SystemExit, match="gold_crown"):
+        train.export_for_web(FakeYolo(), 1024, tmp_path)

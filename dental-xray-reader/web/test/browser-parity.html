@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Browser parity</title>
+<pre id="out">running</pre>
+<script type="module">
+  import { openFile } from "../js/loader.js";
+  const cases = await (await fetch("fixtures/cases.json")).json();
+  const results = [];
+  for (const c of cases) {
+    try {
+      const bytes = await (await fetch(`fixtures/${c.file}`)).arrayBuffer();
+      const type = c.file.endsWith(".png") ? "image/png" : "application/dicom";
+      const image = await openFile(new File([bytes], c.file, { type }));
+      const expected = new Uint8Array(await (await fetch(`fixtures/${c.name}.expected.bin`)).arrayBuffer());
+      let worst = 0;
+      for (let i = 0; i < expected.length; i++) worst = Math.max(worst, Math.abs(image.display[i] - expected[i]));
+      const sizeOk = image.width === c.width && image.height === c.height && image.display.length === expected.length;
+      results.push({ name: c.name, ok: sizeOk && worst <= c.tolerance, worst, tolerance: c.tolerance });
+    } catch (err) {
+      results.push({ name: c.name, ok: false, error: String(err) });
+    }
+  }
+  document.getElementById("out").textContent = JSON.stringify(results);
+  window.parityResults = results;
+</script>

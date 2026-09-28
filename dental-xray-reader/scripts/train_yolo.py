@@ -2,7 +2,7 @@
 
 Usage:
     pip install -r requirements-ml.txt
-    python scripts/train_yolo.py --data configs/dental.yaml --model yolo11m.pt --epochs 150
+    python scripts/train_yolo.py --data configs/dental.yaml --model yolo11m.pt --epochs 150 --export-web
 
 Train on images exported with scripts/prepare_dataset.py so they are normalized exactly
 as the service normalizes uploads. The best checkpoint is copied to weights/dental-yolo.pt,
@@ -50,6 +50,36 @@ def resolve_dataset_config(data_yaml: Path, out_dir: Path) -> Path:
     return resolved
 
 
+def export_for_web(model, imgsz: int, out_dir: Path, metrics: dict | None = None) -> Path:
+    """Export to ONNX for the browser app (web/model/) and write its model.json manifest.
+
+    ``model`` is an ultralytics.YOLO; its class names must be FindingType values.
+    """
+    import json
+    from datetime import date
+
+    names = [model.names[i] for i in sorted(model.names)]
+    unknown = set(names) - {t.value for t in FindingType}
+    if unknown:
+        sys.exit(f"Model classes {sorted(unknown)} are not FindingType values")
+    onnx_path = Path(model.export(format="onnx", imgsz=imgsz, opset=17, dynamic=False, simplify=True))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(onnx_path, out_dir / "dental.onnx")
+    manifest = {
+        "available": True,
+        "name": "Dental YOLO detector",
+        "file": "dental.onnx",
+        "format": "ultralytics-yolo-onnx",
+        "input_size": imgsz,
+        "classes": names,
+        "confidence": 0.25,
+        "exported": date.today().isoformat(),
+        "metrics": metrics or {},
+    }
+    (out_dir / "model.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    return out_dir / "model.json"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data", type=Path, default=ROOT / "configs" / "dental.yaml")
@@ -58,6 +88,11 @@ def main() -> None:
     parser.add_argument("--imgsz", type=int, default=1024)
     parser.add_argument("--batch", type=int, default=8)
     parser.add_argument("--device", default=None, help="e.g. 0, 0,1 or cpu")
+    parser.add_argument(
+        "--export-web",
+        action="store_true",
+        help="Also export to web/model/ so the browser app (GitHub Pages) runs the model",
+    )
     args = parser.parse_args()
 
     data_config = resolve_dataset_config(args.data, ROOT / "runs")
@@ -90,6 +125,15 @@ def main() -> None:
     out.parent.mkdir(exist_ok=True)
     shutil.copy(best, out)
     print(f"Saved {out}")
+
+    if args.export_web:
+        manifest = export_for_web(
+            YOLO(out),
+            args.imgsz,
+            ROOT / "web" / "model",
+            {"mAP50-95": round(float(metrics.box.map), 4), "mAP50": round(float(metrics.box.map50), 4)},
+        )
+        print(f"Exported web model: {manifest} (commit web/model/ to publish it)")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,47 @@
 # Dental X-ray Reader
 
-An AI-assisted dental radiograph analysis service. You upload a DICOM or image X-ray and get back numbered teeth, findings linked to teeth, and a written draft report.
+AI-assisted dental radiograph reading, in two forms:
+
+- **Web app (`web/`)**: free, with no sign-up and no API keys. It runs entirely in the browser, so X-rays never leave the user's device. It's published on this repository's GitHub Pages site at `/xray/`.
+- **Python service (`app/`)**: an HTTP API with optional Claude-written reports, for self-hosting. It also holds the training and data tooling.
 
 > **Clinical decision support only.** This is not a certified medical device. Every finding must be reviewed by a licensed dentist, and clinical use requires regulatory clearance (FDA 510(k), CE MDR, or your local equivalent).
 
-## How it works
+## Web app
+
+Open the site, then drop in an X-ray.
+
+- **Formats:** DICOM (uncompressed, big-endian, RLE, JPEG baseline, JPEG lossless, JPEG-LS and JPEG 2000; multi-frame files open their first frame), PNG, JPEG, WebP and BMP.
+- **Viewer:** zoom and pan (mouse, trackpad or touch), window/level, invert, CLAHE contrast enhancement, and teeth overlays.
+- **Tools:** distance measurement in mm (from DICOM pixel spacing, or calibrated against a known length), and marking findings on the image.
+- **Review:** AI suggestions start *unreviewed* and reach the report only after the dentist confirms them. Findings can be retyped or re-assigned to a tooth.
+- **Chart:** an FDI dental chart showing pathology, dental work and unreviewed suggestions per tooth.
+- **Report:** an editable draft with an impression field. Copy it, download it, or print or save it as PDF together with the annotated image.
+- **Exports:** the annotated full-resolution image and the findings as JSON. Export file names never reuse the uploaded file name, which often contains a patient's name.
+- **Privacy:** a Content-Security-Policy stops the page from connecting to any server other than its own.
+
+**AI detection** runs a YOLO model on the device with ONNX Runtime (WebAssembly, in a worker). No model ships yet; the app says so and works as a manual reading and charting tool until one does. To publish one, train it and commit the export:
+
+```bash
+python scripts/train_yolo.py --data configs/dental.yaml --model yolo11m.pt --epochs 150 --export-web
+git add web/model && git commit -m "Publish dental model"   # the site redeploys with AI enabled
+```
+
+The browser normalizes images exactly as `app/ingest.py` and `scripts/prepare_dataset.py` do, so the model sees in production what it saw in training. `web/test/` checks this byte for byte against images the Python code produced, for every supported DICOM encoding.
+
+Develop and test locally:
+
+```bash
+cd web
+npm ci && npm run vendor && npm test
+python3 -m http.server 8000          # open http://localhost:8000
+```
+
+To regenerate the test fixtures, from `dental-xray-reader/`, run `python web/test/fixtures/make_fixtures.py`, `make_findings_cases.py` and `make_test_model.py`. These need pydicom, pyjpegls, python-gdcm and onnx.
+
+## Python service
+
+### How it works
 
 ```
 upload (.dcm / .png / .jpg / .tif)
@@ -21,11 +58,11 @@ upload (.dcm / .png / .jpg / .tif)
 
 The vision model decides what is on the image. The language model only writes up the structured findings, so it cannot add findings of its own.
 
-### Finding classes
+#### Finding classes
 
 `tooth`, `caries`, `periapical_lesion`, `restoration`, `crown`, `root_canal_treatment`, `implant`, `impacted_tooth`, `bone_loss`, `calculus`
 
-## Quick start
+### Quick start
 
 ```bash
 cd dental-xray-reader
@@ -43,11 +80,11 @@ curl -F "file=@panoramic.dcm" http://localhost:8000/analyze
 
 Out of the box it runs with `DETECTOR_BACKEND=demo`, which returns **synthetic placeholder findings** so you can exercise the whole pipeline and API before you have trained weights. Every demo response carries a `DEMO MODE` warning.
 
-### Claude reports
+#### Claude reports
 
 Set `ANTHROPIC_API_KEY` and reports are written by Claude (`claude-opus-5` by default). Without a key, the service uses the built-in template report. If a Claude request fails in `auto` mode, the service falls back to the template and says so in `warnings`.
 
-## Deploy to Render
+### Deploy to Render (optional server)
 
 The repository root has a `render.yaml` Blueprint that runs this service as a free Docker web service with a password.
 
@@ -60,7 +97,7 @@ Every merge to `main` that changes `dental-xray-reader/` redeploys automatically
 
 Uploads are refused (HTTP 503) until `ACCESS_CODE` is set to 12 or more characters, so the site cannot accidentally go live without a password. `/health` reports any such configuration problem. On Render's free plan, the service sleeps after 15 minutes without traffic, and the first request after that takes about a minute.
 
-## Configuration
+### Configuration
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -97,7 +134,7 @@ Uploads are refused (HTTP 503) until `ACCESS_CODE` is set to 12 or more characte
    DETECTOR_BACKEND=yolo YOLO_WEIGHTS=weights/dental-yolo.pt uvicorn app.main:app
    ```
 
-## API
+## Python service API
 
 | Method | Path | Description |
 |---|---|---|
