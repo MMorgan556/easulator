@@ -76,6 +76,7 @@ def isolated_env(monkeypatch):
         "REPORT_BACKEND",
         "DETECTOR_BACKEND",
         "MAX_UPLOAD_BYTES",
+        "MAX_CONCURRENT_IMAGES",
         "MIN_CONFIDENCE",
         "REVIEW_CONFIDENCE",
     ):

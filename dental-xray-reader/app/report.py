@@ -151,6 +151,14 @@ class ClaudeReportGenerator:
             raise ReportGenerationError(f"Claude API error {exc.status_code}: {exc.message}") from exc
         except anthropic.APIConnectionError as exc:
             raise ReportGenerationError("Could not reach the Claude API") from exc
+        except anthropic.AnthropicError as exc:
+            raise ReportGenerationError(f"Claude API call failed: {exc}") from exc
+        except TypeError as exc:
+            # The SDK signals missing credentials with a plain TypeError; any other TypeError
+            # is a programming error and must surface, not be disguised as a config problem.
+            if "authentication method" not in str(exc):
+                raise
+            raise ReportGenerationError(f"Claude credentials are not configured: {exc}") from exc
 
         if response.stop_reason == "refusal":
             raise ReportGenerationError("Claude declined to write this report")
@@ -159,7 +167,9 @@ class ClaudeReportGenerator:
         text = "".join(block.text for block in response.content if block.type == "text").strip()
         if not text:
             raise ReportGenerationError(f"Claude returned no report text (stop_reason={response.stop_reason})")
-        return Report(text=text, generator=f"claude:{self.model}")
+        # response.model names the model that wrote the text, which differs from the one
+        # requested when a server-side fallback answered.
+        return Report(text=text, generator=f"claude:{response.model}")
 
 
 def claude_credentials_configured() -> bool:

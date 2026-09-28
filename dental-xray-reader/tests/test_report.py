@@ -32,9 +32,9 @@ class FakeMessages:
         return self.response
 
 
-def fake_client(stop_reason="end_turn", text="Draft report"):
+def fake_client(stop_reason="end_turn", text="Draft report", model="claude-opus-5"):
     content = [SimpleNamespace(type="thinking", thinking=""), SimpleNamespace(type="text", text=text)]
-    messages = FakeMessages(SimpleNamespace(stop_reason=stop_reason, content=content))
+    messages = FakeMessages(SimpleNamespace(stop_reason=stop_reason, content=content, model=model))
     return SimpleNamespace(beta=SimpleNamespace(messages=messages)), messages
 
 
@@ -155,4 +155,44 @@ def test_claude_api_error_becomes_report_error():
         http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handler)),
     )
     with pytest.raises(ReportGenerationError, match="529"):
+        ClaudeReportGenerator("claude-opus-5", client=client).generate(INFO, TEETH, FINDINGS, [])
+
+
+def test_report_names_the_model_that_actually_answered():
+    client, _ = fake_client(model="claude-opus-4-8")  # e.g. a server-side fallback served the request
+    report = ClaudeReportGenerator("claude-opus-5", client=client).generate(INFO, TEETH, FINDINGS, [])
+    assert report.generator == "claude:claude-opus-4-8"
+
+
+def test_missing_credentials_become_report_error(monkeypatch, tmp_path):
+    import anthropic
+
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))  # no `ant auth login` profile either
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    generator = ClaudeReportGenerator("claude-opus-5", client=anthropic.Anthropic(max_retries=0))
+    with pytest.raises(ReportGenerationError, match="credentials"):
+        generator.generate(INFO, TEETH, FINDINGS, [])
+
+
+def test_unexpected_sdk_error_becomes_report_error():
+    import anthropic
+
+    class Broken:
+        def create(self, **kwargs):
+            raise anthropic.AnthropicError("unexpected response shape")
+
+    client = SimpleNamespace(beta=SimpleNamespace(messages=Broken()))
+    with pytest.raises(ReportGenerationError, match="unexpected response shape"):
+        ClaudeReportGenerator("claude-opus-5", client=client).generate(INFO, TEETH, FINDINGS, [])
+
+
+def test_programming_type_errors_are_not_disguised_as_credentials():
+    class Broken:
+        def create(self, **kwargs):
+            raise TypeError("create() got an unexpected keyword argument 'fallbacks'")
+
+    client = SimpleNamespace(beta=SimpleNamespace(messages=Broken()))
+    with pytest.raises(TypeError, match="unexpected keyword"):
         ClaudeReportGenerator("claude-opus-5", client=client).generate(INFO, TEETH, FINDINGS, [])

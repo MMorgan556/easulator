@@ -32,6 +32,10 @@ class Settings:
     review_confidence: float = field(default_factory=lambda: _env_float("REVIEW_CONFIDENCE", 0.6))
     model_input_size: int = field(default_factory=lambda: int(os.getenv("MODEL_INPUT_SIZE", "1024")))
     max_upload_bytes: int = field(default_factory=lambda: int(os.getenv("MAX_UPLOAD_BYTES", str(32 * 1024 * 1024))))
+    # Uploads read and decoded at the same time; later ones wait without holding memory or a thread.
+    max_concurrent_images: int = field(default_factory=lambda: int(os.getenv("MAX_CONCURRENT_IMAGES", "1")))
+    # Reports written at the same time (each holds a worker thread while waiting on Claude).
+    max_concurrent_reports: int = field(default_factory=lambda: int(os.getenv("MAX_CONCURRENT_REPORTS", "8")))
     # When set, /analyze requires this code in the X-Access-Code header.
     access_code: str = field(default_factory=lambda: os.getenv("ACCESS_CODE", "").strip())
     # Fail closed: with this on, /analyze refuses all requests until a strong ACCESS_CODE is configured.

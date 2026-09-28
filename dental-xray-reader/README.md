@@ -9,9 +9,9 @@ An AI-assisted dental radiograph analysis service. You upload a DICOM or image X
 ```
 upload (.dcm / .png / .jpg / .tif)
   │
-  ├─ ingest.py      decode DICOM (modality/VOI LUT, MONOCHROME1), read pixel spacing,
-  │                 guess modality (panoramic / bitewing / periapical); no patient tags leave this step
-  ├─ preprocess.py  contrast stretch + clipped histogram equalization, letterbox to model size
+  ├─ ingest.py      decode DICOM (compressed or not; rescale, DICOM window, MONOCHROME1),
+  │                 read pixel spacing, honour EXIF rotation, guess modality
+  │                 (panoramic / bitewing / periapical); no patient tags leave this step
   ├─ detection.py   YOLO detector (teeth + 9 finding classes), or demo placeholder output
   ├─ postprocess.py per-class NMS, FDI tooth numbering, link findings to teeth,
   │                 flag low-confidence findings for review
@@ -72,20 +72,27 @@ Uploads are refused (HTTP 503) until `ACCESS_CODE` is set to 12 or more characte
 | `REVIEW_CONFIDENCE` | `0.6` | Findings below this are flagged `needs_review` |
 | `MODEL_INPUT_SIZE` | `1024` | Detector input resolution |
 | `MAX_UPLOAD_BYTES` | `33554432` | Upload size limit (the Render config sets 25 MB) |
+| `MAX_CONCURRENT_IMAGES` | `1` | Uploads read and decoded at the same time; others wait without using memory. Each slot needs about 250 MB for a 20 MP image, so raise it only on larger machines |
+| `MAX_CONCURRENT_REPORTS` | `8` | Reports written at the same time |
 | `ACCESS_CODE` | unset | When set, `/analyze` requires it in the `X-Access-Code` header |
 | `REQUIRE_ACCESS_CODE` | `false` | Refuse uploads unless `ACCESS_CODE` is 12+ characters (`true` on Render) |
 
 ## Training a real detector
 
-1. Collect and label radiographs in YOLO format, for example with CVAT or Label Studio. Public starting points include DENTEX (panoramic, MICCAI 2023), the Tufts Dental Database, and dental datasets on Roboflow Universe. Have several dentists label the same images so you can measure how much they agree.
-2. Lay the data out as described in `configs/dental.yaml`. Class names must match the list above.
-3. Train:
+1. Collect radiographs. Public starting points include DENTEX (panoramic, MICCAI 2023), the Tufts Dental Database, and dental datasets on Roboflow Universe.
+2. Export them exactly as the service sees them, then label the exported PNGs (not the originals) in YOLO format, for example with CVAT or Label Studio:
+   ```bash
+   python scripts/prepare_dataset.py raw_xrays/train datasets/dental/images/train
+   ```
+   This applies the same DICOM windowing, inversion, contrast stretch and EXIF rotation as uploads, so the model trains on what it will see in production. Have several dentists label the same images so you can measure how much they agree.
+3. Put the labels in `datasets/dental/labels/{train,val,test}` as described in `configs/dental.yaml`. Class names must match the list above.
+4. Train:
    ```bash
    pip install -r requirements-ml.txt
    python scripts/train_yolo.py --data configs/dental.yaml --model yolo11m.pt --epochs 150
    ```
    Horizontal flips are disabled because they swap the patient's left and right, which breaks FDI numbering.
-4. Serve it:
+5. Serve it:
    ```bash
    DETECTOR_BACKEND=yolo YOLO_WEIGHTS=weights/dental-yolo.pt uvicorn app.main:app
    ```
@@ -113,7 +120,7 @@ Response shape (abridged):
 }
 ```
 
-`study_id` is a hash of the upload's contents. The service stores nothing and never returns DICOM patient tags. Compressed DICOM (JPEG baseline/lossless, JPEG 2000, RLE) is supported. Images larger than 50 megapixels are rejected.
+`study_id` is a hash of the upload's contents. The service stores nothing and never returns DICOM patient tags. Compressed DICOM (JPEG baseline/lossless, JPEG 2000, RLE) is supported. Images larger than 20 megapixels are rejected, which keeps memory use within Render's 512 MB free plan.
 
 ## Known limitations and next steps
 

@@ -4,7 +4,9 @@ Usage:
     pip install -r requirements-ml.txt
     python scripts/train_yolo.py --data configs/dental.yaml --model yolo11m.pt --epochs 150
 
-The best checkpoint is copied to weights/dental-yolo.pt, which DETECTOR_BACKEND=yolo loads.
+Train on images exported with scripts/prepare_dataset.py so they are normalized exactly
+as the service normalizes uploads. The best checkpoint is copied to weights/dental-yolo.pt,
+which DETECTOR_BACKEND=yolo loads.
 """
 
 from __future__ import annotations
@@ -20,14 +22,32 @@ sys.path.insert(0, str(ROOT))
 from app.schemas import FindingType  # noqa: E402
 
 
-def check_class_names(data_yaml: Path) -> None:
+def resolve_dataset_config(data_yaml: Path, out_dir: Path) -> Path:
+    """Validate the dataset config and write a copy whose ``path`` is absolute.
+
+    Ultralytics resolves a relative ``path`` against its own datasets directory, not the
+    config file, so a relative path would silently point somewhere else.
+    """
     import yaml
 
-    names = yaml.safe_load(data_yaml.read_text())["names"]
+    config = yaml.safe_load(data_yaml.read_text())
+    names = config["names"]
     names = list(names.values()) if isinstance(names, dict) else list(names)
     unknown = set(names) - {t.value for t in FindingType}
     if unknown:
         sys.exit(f"{data_yaml}: classes {sorted(unknown)} are not FindingType values and would be ignored at inference")
+
+    root = Path(config.get("path", "."))
+    if not root.is_absolute():
+        root = (data_yaml.resolve().parent / root).resolve()
+    if not root.is_dir():
+        sys.exit(f"Dataset folder {root} does not exist (from 'path' in {data_yaml})")
+    config["path"] = str(root)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    resolved = out_dir / "dataset.resolved.yaml"
+    resolved.write_text(yaml.safe_dump(config, sort_keys=False))
+    return resolved
 
 
 def main() -> None:
@@ -40,13 +60,13 @@ def main() -> None:
     parser.add_argument("--device", default=None, help="e.g. 0, 0,1 or cpu")
     args = parser.parse_args()
 
-    check_class_names(args.data)
+    data_config = resolve_dataset_config(args.data, ROOT / "runs")
 
     from ultralytics import YOLO
 
     model = YOLO(args.model)
     model.train(
-        data=str(args.data),
+        data=str(data_config),
         epochs=args.epochs,
         imgsz=args.imgsz,
         batch=args.batch,

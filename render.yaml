@@ -24,3 +24,7 @@ services:
         value: auto
       - key: MAX_UPLOAD_BYTES
         value: "26214400"
+      # One image decode at a time keeps 20 MP images within the free plan's 512 MB
+      # (measured peak ~280 MB). Raise only on a plan with more memory.
+      - key: MAX_CONCURRENT_IMAGES
+        value: "1"
