@@ -1,0 +1,20 @@
+# Ultralytics dataset config. Class order and names must match app/schemas.py FindingType.
+# Expected layout (YOLO format, one .txt label file per image):
+#   datasets/dental/images/{train,val,test}/*.png
+#   datasets/dental/labels/{train,val,test}/*.txt
+path: ../datasets/dental
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: tooth
+  1: caries
+  2: periapical_lesion
+  3: restoration
+  4: crown
+  5: root_canal_treatment
+  6: implant
+  7: impacted_tooth
+  8: bone_loss
+  9: calculus
