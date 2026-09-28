@@ -18,3 +18,9 @@ Run the tests with Node 18 or later:
 ```sh
 node --test calculator/calculator.test.js
 ```
+
+## Deployment
+
+Every push to `main` that changes `calculator/` runs the tests. If they pass, the calculator is published to GitHub Pages at `https://<owner>.github.io/<repo>/`. The workflow is in `.github/workflows/pages.yml`, and you can also start it by hand from the Actions tab.
+
+Pages must be turned on once before the first deploy: in the repo, go to **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**.
