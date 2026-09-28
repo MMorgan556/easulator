@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Everything runs on this device: no network access except this site's own files. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="Free dental X-ray reader that runs entirely in your browser. Opens DICOM and image files; X-rays never leave your device.">
+<title>Dental X-ray Reader</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/app.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <img src="icon.svg" alt="" width="24" height="24">
+    <span>Dental X-ray Reader</span>
+  </div>
+
+  <div class="toolbar" role="toolbar" aria-label="Viewer tools">
+    <label class="btn primary" title="Open an X-ray (O)">
+      <input type="file" id="file-input" accept=".dcm,.dicom,application/dicom,image/png,image/jpeg,image/webp,image/bmp,.tif,.tiff" hidden>
+      Open X-ray
+    </label>
+    <div class="segmented" role="radiogroup" aria-label="Mouse tool">
+      <button type="button" class="tool" data-tool="pan" role="radio" aria-checked="true" title="Pan and select (V)">Pan</button>
+      <button type="button" class="tool" data-tool="window" role="radio" aria-checked="false" title="Window/level: drag up/down for brightness, left/right for contrast (W)">Window</button>
+      <button type="button" class="tool" data-tool="measure" role="radio" aria-checked="false" title="Measure a distance (M)">Measure</button>
+      <button type="button" class="tool" data-tool="box" role="radio" aria-checked="false" title="Mark a finding on the image (F)">Mark</button>
+    </div>
+    <div class="group">
+      <button type="button" class="btn icon" id="zoom-out" title="Zoom out (-)" aria-label="Zoom out">−</button>
+      <button type="button" class="btn" id="zoom-fit" title="Fit to screen (0)">Fit</button>
+      <button type="button" class="btn icon" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
+    </div>
+    <div class="group">
+      <button type="button" class="btn toggle" id="invert" aria-pressed="false" title="Invert (I)">Invert</button>
+      <button type="button" class="btn toggle" id="enhance" aria-pressed="false" title="Local contrast enhancement, CLAHE (E)">Enhance</button>
+      <button type="button" class="btn toggle" id="show-teeth" aria-pressed="true" title="Show detected teeth (T)">Teeth</button>
+    </div>
+    <div class="group">
+      <button type="button" class="btn" id="export-png" disabled>Image</button>
+      <button type="button" class="btn" id="export-json" disabled>Data</button>
+      <button type="button" class="btn" id="print-report" disabled>Print report</button>
+    </div>
+  </div>
+
+  <button type="button" class="privacy" id="about-open" title="About, privacy and AI model">
+    <span class="dot" aria-hidden="true"></span> On-device · Private
+  </button>
+</header>
+
+<main class="workspace">
+  <section class="stage" aria-label="X-ray viewer">
+    <div class="canvas-wrap"><canvas id="viewer" aria-label="X-ray image"></canvas></div>
+
+    <div class="empty" id="empty">
+      <div class="empty-card">
+        <h1>Open a dental X-ray</h1>
+        <p>Drop a file here or choose one. DICOM (uncompressed, RLE, JPEG, JPEG-LS, JPEG 2000), PNG, JPEG, WebP and BMP are supported.</p>
+        <label class="btn primary large">
+          <input type="file" id="file-input-empty" accept=".dcm,.dicom,application/dicom,image/png,image/jpeg,image/webp,image/bmp,.tif,.tiff" hidden>
+          Choose file
+        </label>
+        <p class="fine">Your X-ray is processed on this device and never uploaded. Free, no sign-up.</p>
+      </div>
+    </div>
+    <div class="drop-hint" id="drop-hint" hidden>Drop to open</div>
+    <div class="busy" id="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="busy-text">Working…</span></div>
+
+    <footer class="statusbar" id="statusbar">
+      <span id="status-image">No image</span>
+      <span id="status-window"></span>
+      <span id="status-zoom"></span>
+    </footer>
+  </section>
+
+  <aside class="sidebar" aria-label="Analysis">
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" class="tab" id="tab-findings" aria-selected="true" aria-controls="panel-findings">Findings</button>
+      <button type="button" role="tab" class="tab" id="tab-chart" aria-selected="false" aria-controls="panel-chart">Chart</button>
+      <button type="button" role="tab" class="tab" id="tab-report" aria-selected="false" aria-controls="panel-report">Report</button>
+      <button type="button" role="tab" class="tab" id="tab-image" aria-selected="false" aria-controls="panel-image">Image</button>
+    </div>
+
+    <section class="panel" id="panel-findings" role="tabpanel" aria-labelledby="tab-findings">
+      <div class="card ai-card" id="ai-card">
+        <div class="card-head">
+          <h2>AI detection</h2>
+          <span class="chip" id="ai-chip">Checking…</span>
+        </div>
+        <p class="muted" id="ai-text"></p>
+        <button type="button" class="btn primary block" id="ai-run" disabled>Analyze with AI</button>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Findings</h2>
+          <span class="muted small" id="findings-count"></span>
+        </div>
+        <ol class="findings" id="findings-list" aria-live="polite"></ol>
+        <p class="muted small empty-list" id="findings-empty">No findings yet. Use <strong>Mark</strong> to outline one on the image, or add one below.</p>
+      </div>
+
+      <form class="card" id="add-form" autocomplete="off">
+        <h2 id="add-title">Add finding</h2>
+        <div class="row">
+          <label>Type
+            <select id="add-type" required></select>
+          </label>
+          <label>Tooth (FDI)
+            <select id="add-tooth"></select>
+          </label>
+        </div>
+        <label>Note
+          <input type="text" id="add-note" maxlength="200" placeholder="Optional, e.g. distal, deep">
+        </label>
+        <p class="muted small" id="add-box-note">No area marked; use the Mark tool to outline it on the image.</p>
+        <div class="row">
+          <button type="submit" class="btn primary">Add finding</button>
+          <button type="button" class="btn" id="add-cancel" hidden>Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel" id="panel-chart" role="tabpanel" aria-labelledby="tab-chart" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2>Dental chart</h2>
+          <span class="muted small">Patient's right ◂ ▸ left</span>
+        </div>
+        <div class="chart" id="chart" role="group" aria-label="Teeth by FDI number"></div>
+        <div class="legend">
+          <span><i class="sw pathology"></i>Pathology</span>
+          <span><i class="sw work"></i>Dental work</span>
+          <span><i class="sw pending"></i>AI, unreviewed</span>
+          <span><i class="sw detected"></i>Detected</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2 id="tooth-title">Select a tooth</h2>
+        <ul class="plain" id="tooth-findings"></ul>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-report" role="tabpanel" aria-labelledby="tab-report" hidden>
+      <div class="card">
+        <label>Impression and plan
+          <textarea id="impression" rows="3" placeholder="Your clinical impression and follow-up plan"></textarea>
+        </label>
+        <label>Report
+          <textarea id="report" rows="16" spellcheck="false"></textarea>
+        </label>
+        <p class="muted small" id="report-state">Updates automatically as findings change.</p>
+        <div class="row wrap">
+          <button type="button" class="btn" id="report-regenerate">Regenerate</button>
+          <button type="button" class="btn" id="report-copy">Copy</button>
+          <button type="button" class="btn" id="report-download">Download .txt</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-image" role="tabpanel" aria-labelledby="tab-image" hidden>
+      <div class="card">
+        <h2>Window / level</h2>
+        <label>Level (center) <output id="wc-out"></output>
+          <input type="range" id="wc" step="any">
+        </label>
+        <label>Width <output id="ww-out"></output>
+          <input type="range" id="ww" step="any">
+        </label>
+        <button type="button" class="btn block" id="window-reset">Reset to default</button>
+      </div>
+      <div class="card">
+        <h2>Image</h2>
+        <label>Radiograph type
+          <select id="modality">
+            <option value="panoramic">Panoramic</option>
+            <option value="bitewing">Bitewing</option>
+            <option value="periapical">Periapical</option>
+          </select>
+        </label>
+        <dl class="meta" id="meta"></dl>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Measurements</h2>
+          <span class="muted small" id="spacing-text"></span>
+        </div>
+        <ol class="measurements" id="measurements"></ol>
+        <p class="muted small" id="measure-empty">Use <strong>Measure</strong> to draw a distance.</p>
+        <form class="row" id="calibrate-form" hidden>
+          <label>Calibrate: selected line is
+            <input type="number" id="calibrate-mm" min="0.1" step="0.1" required> mm
+          </label>
+          <button type="submit" class="btn">Set</button>
+        </form>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<dialog id="about">
+  <form method="dialog" class="dialog">
+    <h2>About this reader</h2>
+    <p><strong>Private by design.</strong> Files are opened and analysed inside your browser. Nothing is uploaded; the page is not allowed to contact any server other than the one it was loaded from.</p>
+    <p><strong>AI detection.</strong> <span id="about-ai"></span></p>
+    <p><strong>Not a medical device.</strong> This tool supports, and does not replace, the judgement of a licensed dentist. Confirm every finding clinically.</p>
+    <p class="muted small">Keyboard: V pan · W window · M measure · F mark · 0 fit · +/− zoom · I invert · E enhance · T teeth · Delete removes the selected item · Esc cancels.</p>
+    <p class="muted small"><a href="vendor/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener">Third-party licences</a></p>
+    <div class="row end"><button class="btn primary" value="close">Close</button></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<section class="print-only" id="print-view" aria-hidden="true">
+  <img id="print-image" alt="">
+  <pre id="print-text"></pre>
+</section>
+</body>
+</html>

@@ -1,0 +1,4 @@
+{
+  "available": false,
+  "note": "No AI model is installed yet. Train one with scripts/train_yolo.py --export-web, which replaces this file and adds dental.onnx."
+}

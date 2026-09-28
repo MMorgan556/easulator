@@ -1,0 +1,230 @@
+[
+ {
+  "name": "native16",
+  "file": "native16.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": [
+   0.1,
+   0.12
+  ],
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "monochrome1",
+  "file": "monochrome1.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rescale_window",
+  "file": "rescale_window.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "window_multivalue",
+  "file": "window_multivalue.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "window_degenerate",
+  "file": "window_degenerate.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "window_sigmoid",
+  "file": "window_sigmoid.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "signed16",
+  "file": "signed16.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "native8",
+  "file": "native8.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rgb8",
+  "file": "rgb8.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rgb8_planar",
+  "file": "rgb8_planar.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "multiframe",
+  "file": "multiframe.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "big_endian16",
+  "file": "big_endian16.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rle_multiframe",
+  "file": "rle_multiframe.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "j2k_multiframe",
+  "file": "j2k_multiframe.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rle16",
+  "file": "rle16.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rle8",
+  "file": "rle8.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rle_rgb",
+  "file": "rle_rgb.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "j2k16",
+  "file": "j2k16.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "j2k8",
+  "file": "j2k8.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "jls16",
+  "file": "jls16.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "jpeg_lossless16",
+  "file": "jpeg_lossless16.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "jpeg_lossless8",
+  "file": "jpeg_lossless8.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "jpeg_baseline8",
+  "file": "jpeg_baseline8.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 2
+ },
+ {
+  "name": "gray_png",
+  "file": "gray_png.png",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rgb_png",
+  "file": "rgb_png.png",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ }
+]

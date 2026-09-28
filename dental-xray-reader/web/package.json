@@ -1,0 +1,18 @@
+{
+  "name": "dental-xray-reader-web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Browser-only dental X-ray reader. All processing happens on the user's device.",
+  "type": "module",
+  "scripts": {
+    "vendor": "node tools/vendor.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@cornerstonejs/codec-charls": "1.2.7",
+    "@cornerstonejs/codec-openjpeg": "1.3.6",
+    "dicom-parser": "1.8.21",
+    "jpeg-lossless-decoder-js": "2.1.2",
+    "onnxruntime-web": "1.30.0"
+  }
+}
