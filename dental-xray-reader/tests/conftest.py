@@ -65,3 +65,18 @@ def panoramic_png() -> bytes:
 @pytest.fixture
 def panoramic_dicom() -> bytes:
     return dicom_bytes()
+
+
+@pytest.fixture(autouse=True)
+def isolated_env(monkeypatch):
+    """Keep tests independent of whatever is configured in the developer's shell."""
+    for name in (
+        "ACCESS_CODE",
+        "REQUIRE_ACCESS_CODE",
+        "REPORT_BACKEND",
+        "DETECTOR_BACKEND",
+        "MAX_UPLOAD_BYTES",
+        "MIN_CONFIDENCE",
+        "REVIEW_CONFIDENCE",
+    ):
+        monkeypatch.delenv(name, raising=False)

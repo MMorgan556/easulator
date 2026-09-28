@@ -1,0 +1,26 @@
+# Render Blueprint for the dental X-ray reader (https://render.com/docs/blueprint-spec).
+# Paths are relative to the repository root.
+services:
+  - type: web
+    name: dental-xray-reader
+    runtime: docker
+    plan: free
+    dockerfilePath: ./dental-xray-reader/Dockerfile
+    dockerContext: ./dental-xray-reader
+    healthCheckPath: /health
+    # Only changes to the reader redeploy it (not the calculator).
+    buildFilter:
+      paths:
+        - dental-xray-reader/**
+    envVars:
+      # Uploads are refused until ACCESS_CODE is set to 12+ characters.
+      - key: REQUIRE_ACCESS_CODE
+        value: "true"
+      - key: ACCESS_CODE
+        sync: false
+      - key: DETECTOR_BACKEND
+        value: demo
+      - key: REPORT_BACKEND
+        value: auto
+      - key: MAX_UPLOAD_BYTES
+        value: "26214400"

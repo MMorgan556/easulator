@@ -154,6 +154,8 @@ class ClaudeReportGenerator:
 
         if response.stop_reason == "refusal":
             raise ReportGenerationError("Claude declined to write this report")
+        if response.stop_reason == "max_tokens":
+            raise ReportGenerationError("Claude's report was cut off before it finished")
         text = "".join(block.text for block in response.content if block.type == "text").strip()
         if not text:
             raise ReportGenerationError(f"Claude returned no report text (stop_reason={response.stop_reason})")

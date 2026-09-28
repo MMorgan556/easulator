@@ -22,7 +22,7 @@ def full_mouth(width=1600, height=800, per_side=8):
 
 
 def test_fdi_numbering_on_panoramic():
-    teeth = number_teeth(full_mouth(), 1600, ImageModality.PANORAMIC)
+    teeth = number_teeth(full_mouth(), 1600, 800, ImageModality.PANORAMIC)
     fdis = {t.fdi for t in teeth}
     assert fdis == {f"{q}{n}" for q in (1, 2, 3, 4) for n in range(1, 9)}
 
@@ -36,14 +36,25 @@ def test_fdi_numbering_on_panoramic():
 
 
 def test_non_panoramic_teeth_are_not_numbered():
-    teeth = number_teeth(full_mouth()[:4], 1600, ImageModality.BITEWING)
+    teeth = number_teeth(full_mouth()[:4], 1600, 800, ImageModality.BITEWING)
     assert all(t.fdi == "?" for t in teeth)
 
 
-def test_single_arch_is_not_split():
+def test_single_upper_arch_is_not_split():
     upper_only = [t for t in full_mouth() if t.box.y1 == 100]
-    teeth = number_teeth(upper_only, 1600, ImageModality.PANORAMIC)
+    teeth = number_teeth(upper_only, 1600, 800, ImageModality.PANORAMIC)
     assert {t.fdi[0] for t in teeth} == {"1", "2"}
+
+
+def test_single_lower_arch_gets_lower_quadrants():
+    lower_only = [t for t in full_mouth() if t.box.y1 == 420]
+    teeth = number_teeth(lower_only, 1600, 800, ImageModality.PANORAMIC)
+    assert {t.fdi[0] for t in teeth} == {"3", "4"}
+
+
+def test_single_tooth_is_numbered():
+    teeth = number_teeth([det(FindingType.TOOTH, 700, 450, 790, 700)], 1600, 800, ImageModality.PANORAMIC)
+    assert [t.fdi for t in teeth] == ["41"]
 
 
 def test_nms_removes_duplicates_but_keeps_other_classes():
@@ -56,14 +67,14 @@ def test_nms_removes_duplicates_but_keeps_other_classes():
 
 def test_findings_linked_to_tooth_and_flagged_by_confidence():
     teeth = full_mouth()
-    t11 = number_teeth(teeth, 1600, ImageModality.PANORAMIC)
+    t11 = number_teeth(teeth, 1600, 800, ImageModality.PANORAMIC)
     box_11 = next(t.box for t in t11 if t.fdi == "11")
     caries = det(FindingType.CARIES, box_11.x1 + 5, box_11.y1 + 5, box_11.x1 + 30, box_11.y1 + 30, 0.85)
     lesion = det(FindingType.PERIAPICAL_LESION, box_11.x1, box_11.y2 - 20, box_11.x2, box_11.y2, 0.4)
     noise = det(FindingType.CALCULUS, 0, 0, 10, 10, 0.1)
 
     numbered, findings = build_findings(
-        teeth + [caries, lesion, noise], 1600, ImageModality.PANORAMIC, min_confidence=0.25, review_confidence=0.6
+        teeth + [caries, lesion, noise], 1600, 800, ImageModality.PANORAMIC, min_confidence=0.25, review_confidence=0.6
     )
     assert len(numbered) == 32
     assert [f.type for f in findings] == [FindingType.CARIES, FindingType.PERIAPICAL_LESION]
@@ -74,6 +85,6 @@ def test_findings_linked_to_tooth_and_flagged_by_confidence():
 
 def test_finding_outside_any_tooth_is_unassigned():
     _, findings = build_findings(
-        full_mouth() + [det(FindingType.BONE_LOSS, 0, 0, 20, 20)], 1600, ImageModality.PANORAMIC, 0.25, 0.6
+        full_mouth() + [det(FindingType.BONE_LOSS, 0, 0, 20, 20)], 1600, 800, ImageModality.PANORAMIC, 0.25, 0.6
     )
     assert findings[0].tooth is None

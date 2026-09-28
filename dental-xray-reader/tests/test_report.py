@@ -88,3 +88,71 @@ def test_auto_backend_uses_template_without_credentials(monkeypatch):
 def test_unknown_backend_rejected():
     with pytest.raises(ValueError):
         build_report_generator(Settings(report_backend="nope"))
+
+
+def test_claude_truncated_report_raises():
+    client, _ = fake_client(stop_reason="max_tokens", text="Findings: cari")
+    with pytest.raises(ReportGenerationError, match="cut off"):
+        ClaudeReportGenerator("claude-opus-5", client=client).generate(INFO, TEETH, FINDINGS, [])
+
+
+def test_claude_request_through_real_sdk():
+    """Runs the real Anthropic SDK against a fake transport to check the wire request and response parsing."""
+    import anthropic
+    import httpx2
+
+    seen = {}
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen["path"] = request.url.path
+        seen["beta"] = request.headers.get("anthropic-beta")
+        seen["body"] = json.loads(request.content)
+        return httpx2.Response(
+            200,
+            json={
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-5",
+                "content": [
+                    {"type": "thinking", "thinking": "", "signature": "sig"},
+                    {"type": "text", "text": "Tooth 16: caries (82%)."},
+                ],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 100, "output_tokens": 20},
+            },
+        )
+
+    client = anthropic.Anthropic(
+        api_key="test-key",
+        max_retries=0,
+        http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handler)),
+    )
+    report = ClaudeReportGenerator("claude-opus-5", client=client).generate(INFO, TEETH, FINDINGS, [])
+
+    assert report.text == "Tooth 16: caries (82%)."
+    assert seen["path"] == "/v1/messages"
+    assert "server-side-fallback-2026-07-01" in seen["beta"]
+    body = seen["body"]
+    assert body["model"] == "claude-opus-5"
+    assert body["fallbacks"] == "default"
+    assert body["thinking"] == {"type": "adaptive"}
+    assert body["system"].startswith("You write draft dental radiograph reports")
+    assert json.loads(body["messages"][0]["content"])["findings"][0]["type"] == "caries"
+
+
+def test_claude_api_error_becomes_report_error():
+    import anthropic
+    import httpx2
+
+    def handler(request):
+        return httpx2.Response(529, json={"type": "error", "error": {"type": "overloaded_error", "message": "busy"}})
+
+    client = anthropic.Anthropic(
+        api_key="test-key",
+        max_retries=0,
+        http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handler)),
+    )
+    with pytest.raises(ReportGenerationError, match="529"):
+        ClaudeReportGenerator("claude-opus-5", client=client).generate(INFO, TEETH, FINDINGS, [])

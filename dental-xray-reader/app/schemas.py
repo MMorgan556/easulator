@@ -112,3 +112,7 @@ class AnalysisResult(BaseModel):
     findings: list[Finding]
     report: Report | None = None
     warnings: list[str] = Field(default_factory=list)
+    preview_png: str | None = Field(
+        default=None,
+        description="Base64 PNG of the processed image, downscaled; box coordinates still refer to the full image",
+    )

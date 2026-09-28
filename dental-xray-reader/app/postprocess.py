@@ -14,21 +14,25 @@ def non_max_suppression(detections: list[Detection], iou_threshold: float = 0.5)
     return kept
 
 
-def _split_arches(teeth: list[Detection]) -> tuple[list[Detection], list[Detection]]:
-    """Split teeth into upper and lower arch at the largest vertical gap between centers."""
-    if len(teeth) < 2:
-        return teeth, []
+def _split_arches(teeth: list[Detection], image_height: int) -> tuple[list[Detection], list[Detection]]:
+    """Split teeth into (upper, lower) arch at the largest vertical gap between centers."""
+    if not teeth:
+        return [], []
     ordered = sorted(teeth, key=lambda t: t.box.center[1])
-    ys = [t.box.center[1] for t in ordered]
-    gaps = [(ys[i + 1] - ys[i], i) for i in range(len(ys) - 1)]
-    gap, idx = max(gaps)
-    typical_height = sorted(t.box.y2 - t.box.y1 for t in ordered)[len(ordered) // 2]
-    if gap < typical_height * 0.5:
-        return ordered, []  # a single arch is visible
-    return ordered[: idx + 1], ordered[idx + 1 :]
+    if len(ordered) >= 2:
+        ys = [t.box.center[1] for t in ordered]
+        gap, idx = max((ys[i + 1] - ys[i], i) for i in range(len(ys) - 1))
+        typical_height = sorted(t.box.y2 - t.box.y1 for t in ordered)[len(ordered) // 2]
+        if gap >= typical_height * 0.5:
+            return ordered[: idx + 1], ordered[idx + 1 :]
+    # Only one arch is visible: place it by where it sits in the image.
+    mean_y = sum(t.box.center[1] for t in ordered) / len(ordered)
+    return (ordered, []) if mean_y < image_height / 2 else ([], ordered)
 
 
-def number_teeth(tooth_detections: list[Detection], image_width: int, modality: ImageModality) -> list[Tooth]:
+def number_teeth(
+    tooth_detections: list[Detection], image_width: int, image_height: int, modality: ImageModality
+) -> list[Tooth]:
     """Assign FDI numbers on a panoramic image.
 
     Uses the radiographic display convention: the patient's right side appears on
@@ -42,7 +46,7 @@ def number_teeth(tooth_detections: list[Detection], image_width: int, modality: 
         return [Tooth(fdi="?", confidence=d.confidence, box=d.box) for d in tooth_detections]
 
     midline = image_width / 2
-    upper, lower = _split_arches(tooth_detections)
+    upper, lower = _split_arches(tooth_detections, image_height)
     teeth: list[Tooth] = []
     for arch, (right_q, left_q) in ((upper, (1, 2)), (lower, (4, 3))):
         viewer_left = sorted((t for t in arch if t.box.center[0] < midline), key=lambda t: -t.box.center[0])
@@ -71,13 +75,14 @@ def _assign_tooth(box: BoundingBox, teeth: list[Tooth], min_overlap: float = 0.3
 def build_findings(
     detections: list[Detection],
     image_width: int,
+    image_height: int,
     modality: ImageModality,
     min_confidence: float,
     review_confidence: float,
 ) -> tuple[list[Tooth], list[Finding]]:
     confident = [d for d in detections if d.confidence >= min_confidence]
     kept = non_max_suppression(confident)
-    teeth = number_teeth([d for d in kept if d.type == FindingType.TOOTH], image_width, modality)
+    teeth = number_teeth([d for d in kept if d.type == FindingType.TOOTH], image_width, image_height, modality)
 
     others = sorted((d for d in kept if d.type != FindingType.TOOTH), key=lambda d: -d.confidence)
     findings = [

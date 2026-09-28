@@ -35,7 +35,7 @@ pytest
 uvicorn app.main:app --reload
 ```
 
-Open http://localhost:8000/docs, or run:
+Open http://localhost:8000 for the web viewer (upload an X-ray, see boxes, findings and the report), http://localhost:8000/docs for the interactive API, or run:
 
 ```bash
 curl -F "file=@panoramic.dcm" http://localhost:8000/analyze
@@ -46,6 +46,19 @@ Out of the box it runs with `DETECTOR_BACKEND=demo`, which returns **synthetic p
 ### Claude reports
 
 Set `ANTHROPIC_API_KEY` and reports are written by Claude (`claude-opus-5` by default). Without a key, the service uses the built-in template report. If a Claude request fails in `auto` mode, the service falls back to the template and says so in `warnings`.
+
+## Deploy to Render
+
+The repository root has a `render.yaml` Blueprint that runs this service as a free Docker web service with a password.
+
+1. Open https://dashboard.render.com/blueprints, click **New Blueprint Instance**, and connect this GitHub repository. Alternatively, open `https://render.com/deploy?repo=<your repository URL>`.
+2. When Render asks for **ACCESS_CODE**, enter a password of at least 12 characters. Share it only with the people who should upload X-rays.
+3. Click **Apply**. The first build takes a few minutes, and Render then shows the site's `https://…onrender.com` URL.
+4. Optional: to have Claude write the reports, add an `ANTHROPIC_API_KEY` environment variable in the service's **Environment** tab.
+
+Every merge to `main` that changes `dental-xray-reader/` redeploys automatically.
+
+Uploads are refused (HTTP 503) until `ACCESS_CODE` is set to 12 or more characters, so the site cannot accidentally go live without a password. `/health` reports any such configuration problem. On Render's free plan, the service sleeps after 15 minutes without traffic, and the first request after that takes about a minute.
 
 ## Configuration
 
@@ -58,7 +71,9 @@ Set `ANTHROPIC_API_KEY` and reports are written by Claude (`claude-opus-5` by de
 | `MIN_CONFIDENCE` | `0.25` | Detections below this are dropped |
 | `REVIEW_CONFIDENCE` | `0.6` | Findings below this are flagged `needs_review` |
 | `MODEL_INPUT_SIZE` | `1024` | Detector input resolution |
-| `MAX_UPLOAD_BYTES` | `67108864` | Upload size limit |
+| `MAX_UPLOAD_BYTES` | `33554432` | Upload size limit (the Render config sets 25 MB) |
+| `ACCESS_CODE` | unset | When set, `/analyze` requires it in the `X-Access-Code` header |
+| `REQUIRE_ACCESS_CODE` | `false` | Refuse uploads unless `ACCESS_CODE` is 12+ characters (`true` on Render) |
 
 ## Training a real detector
 
@@ -79,7 +94,8 @@ Set `ANTHROPIC_API_KEY` and reports are written by Claude (`claude-opus-5` by de
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/analyze?report=true` | Multipart `file` upload; returns `AnalysisResult` JSON |
+| `GET` | `/` | Web viewer |
+| `POST` | `/analyze?report=true&preview=false` | Multipart `file` upload plus an `X-Access-Code` header when enabled; returns `AnalysisResult` JSON. `preview=true` adds a downscaled PNG for display |
 | `GET` | `/health` | Active detector and report generator |
 | `GET` | `/classes` | Supported finding types |
 
@@ -97,7 +113,7 @@ Response shape (abridged):
 }
 ```
 
-`study_id` is a hash of the upload's contents. The service stores nothing and never returns DICOM patient tags.
+`study_id` is a hash of the upload's contents. The service stores nothing and never returns DICOM patient tags. Compressed DICOM (JPEG baseline/lossless, JPEG 2000, RLE) is supported. Images larger than 50 megapixels are rejected.
 
 ## Known limitations and next steps
 
@@ -105,4 +121,4 @@ Response shape (abridged):
 - **Segmentation**: add nnU-Net or MONAI for pixel-accurate caries depth and bone-level measurements; `pixel_spacing_mm` is already passed through for mm measurements.
 - **Explainability**: Grad-CAM overlays and uncertainty estimates (ensembles or MC dropout).
 - **Integration**: Orthanc/PACS ingestion, an OHIF viewer with overlays, and a queue for asynchronous processing.
-- **Compliance**: audit logging, authentication, encryption at rest, and an IEC 62304 / ISO 13485 / ISO 14971 process before any clinical use.
+- **Compliance**: per-user accounts instead of a shared access code, audit logging, a signed business associate agreement (BAA) with the host before handling real patient data, and an IEC 62304 / ISO 13485 / ISO 14971 process before any clinical use.

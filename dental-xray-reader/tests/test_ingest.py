@@ -71,3 +71,58 @@ def test_prepare_stretches_contrast():
     pixels = np.tile(np.linspace(100, 130, 100).astype(np.uint8), (100, 1))
     out, _ = prepare(pixels, 100)
     assert int(out.max()) - int(out.min()) > 100
+
+
+@pytest.mark.parametrize("syntax", ["JPEG2000Lossless", "RLELossless"])
+def test_loads_compressed_dicom(syntax):
+    import io
+
+    import pydicom
+    import pydicom.uid
+
+    ds = pydicom.dcmread(io.BytesIO(dicom_bytes()))
+    ds.compress(getattr(pydicom.uid, syntax))
+    buf = io.BytesIO()
+    ds.save_as(buf)
+
+    compressed = load_image(buf.getvalue())
+    reference = load_image(dicom_bytes())
+    assert compressed.info.source_format == "dicom"
+    assert np.array_equal(compressed.pixels, reference.pixels)
+
+
+def test_rejects_dicom_without_pixels():
+    import io
+
+    import pydicom
+
+    ds = pydicom.dcmread(io.BytesIO(dicom_bytes()))
+    del ds.PixelData
+    buf = io.BytesIO()
+    ds.save_as(buf)
+    with pytest.raises(IngestError, match="no image"):
+        load_image(buf.getvalue())
+
+
+def test_rejects_oversized_image(monkeypatch):
+    import app.ingest
+
+    monkeypatch.setattr(app.ingest, "MAX_PIXELS", 1000)
+    with pytest.raises(IngestError, match="too large"):
+        load_image(png_bytes(100, 50))
+    with pytest.raises(IngestError, match="too large"):
+        load_image(dicom_bytes(100, 50))
+
+
+@pytest.mark.parametrize(
+    ("hint", "expected"),
+    [
+        ("OPG", ImageModality.PANORAMIC),
+        ("Panoramic X-ray", ImageModality.PANORAMIC),
+        ("BW left", ImageModality.BITEWING),
+        ("IOPA 46", ImageModality.PERIAPICAL),
+        ("Optional spa notes", ImageModality.PERIAPICAL),  # no false match; falls back to shape (800x1000)
+    ],
+)
+def test_guess_modality_from_hint(hint, expected):
+    assert guess_modality(800, 1000, hint) == expected

@@ -7,6 +7,7 @@ geometry needed for measurement leave this module.
 from __future__ import annotations
 
 import io
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -16,6 +17,8 @@ from .schemas import ImageInfo, ImageModality
 
 DICOM_MAGIC_OFFSET = 128
 DICOM_MAGIC = b"DICM"
+# Largest image accepted (panoramic sensors are typically under 10 MP). Bounds memory use.
+MAX_PIXELS = 50_000_000
 
 
 class IngestError(ValueError):
@@ -47,12 +50,12 @@ def to_uint8(arr: np.ndarray) -> np.ndarray:
 def guess_modality(width: int, height: int, hint: str | None = None) -> ImageModality:
     """Best-effort guess of the radiograph type from DICOM hints or image shape."""
     if hint:
-        text = hint.lower()
-        if "pan" in text:
+        words = re.findall(r"[a-z]+", hint.lower())
+        if any(w.startswith("pan") or w in ("opg", "opt", "dpt") for w in words):
             return ImageModality.PANORAMIC
-        if "bitewing" in text or "bwx" in text:
+        if any(w.startswith("bitewing") or w in ("bw", "bwx") for w in words):
             return ImageModality.BITEWING
-        if "periapical" in text or "pa " in f"{text} ":
+        if any(w.startswith("periapical") or w in ("pa", "iopa") for w in words):
             return ImageModality.PERIAPICAL
     aspect = width / height if height else 0
     if aspect >= 1.7:
@@ -70,8 +73,14 @@ def _load_dicom(data: bytes) -> LoadedImage:
 
     try:
         ds = pydicom.dcmread(io.BytesIO(data))
-        arr = ds.pixel_array
     except Exception as exc:  # pydicom raises many exception types for bad files
+        raise IngestError(f"Could not read DICOM file: {exc}") from exc
+    if "PixelData" not in ds:
+        raise IngestError("DICOM file contains no image")
+    _check_size(int(ds.get("Columns", 0)), int(ds.get("Rows", 0)))
+    try:
+        arr = ds.pixel_array
+    except Exception as exc:
         raise IngestError(f"Could not decode DICOM pixel data: {exc}") from exc
 
     if arr.ndim == 3 and ds.get("SamplesPerPixel", 1) == 1:
@@ -105,12 +114,23 @@ def _load_dicom(data: bytes) -> LoadedImage:
     )
 
 
+def _check_size(width: int, height: int) -> None:
+    if width * height > MAX_PIXELS:
+        raise IngestError(f"Image too large ({width}x{height}); the limit is {MAX_PIXELS:,} pixels")
+
+
 def _load_raster(data: bytes) -> LoadedImage:
     try:
         img = Image.open(io.BytesIO(data))
-        img.load()
+    except Image.DecompressionBombError as exc:
+        raise IngestError("Image too large to process") from exc
     except (UnidentifiedImageError, OSError) as exc:
         raise IngestError("Upload is neither DICOM nor a readable image file") from exc
+    _check_size(*img.size)  # Image.open only reads the header, so this runs before decoding
+    try:
+        img.load()
+    except OSError as exc:
+        raise IngestError(f"Image file is damaged or truncated: {exc}") from exc
 
     fmt = (img.format or "unknown").lower()
     if img.mode in ("I;16", "I;16B", "I", "F"):

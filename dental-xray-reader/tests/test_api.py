@@ -18,6 +18,7 @@ class FailingReporter:
 
 
 def client_with(settings: Settings, reporter=None) -> TestClient:
+    """Test client around a demo pipeline; defaults leave the access code off."""
     pipeline = Pipeline(settings, DemoDetector(), reporter or TemplateReportGenerator())
     app.dependency_overrides[get_pipeline] = lambda: pipeline
     return TestClient(app)
@@ -30,8 +31,67 @@ def clear_overrides():
 
 
 def test_health():
-    body = client_with(Settings()).get("/health").json()
-    assert body == {"status": "ok", "detector": "demo", "report_generator": "template"}
+    body = client_with(Settings(access_code="", require_access_code=False)).get("/health").json()
+    assert body == {
+        "status": "ok",
+        "detector": "demo",
+        "report_generator": "template",
+        "access_code_required": False,
+        "configuration_problem": None,
+    }
+
+
+def test_viewer_page_is_served():
+    resp = client_with(Settings()).get("/")
+    assert resp.status_code == 200
+    assert "Dental X-ray Reader" in resp.text
+
+
+def test_preview_is_optional_and_downscaled(panoramic_png):
+    import base64
+    import io
+
+    from PIL import Image
+
+    client = client_with(Settings())
+    assert client.post("/analyze", files={"file": ("p.png", panoramic_png)}).json()["preview_png"] is None
+
+    big = png_bytes(3200, 1600)
+    body = client.post("/analyze?preview=true", files={"file": ("p.png", big)}).json()
+    preview = Image.open(io.BytesIO(base64.b64decode(body["preview_png"])))
+    assert preview.size == (1600, 800)
+    assert body["image"]["width"] == 3200  # boxes stay in full-resolution coordinates
+
+
+STRONG_CODE = "correct-horse-battery"
+
+
+@pytest.mark.parametrize(
+    ("header", "status"),
+    [(None, 401), ("wrong-code-entirely", 401), (STRONG_CODE, 200), (f"  {STRONG_CODE} ", 200)],
+)
+def test_access_code_is_enforced(panoramic_png, header, status):
+    client = client_with(Settings(access_code=STRONG_CODE, require_access_code=True))
+    headers = {"X-Access-Code": header} if header is not None else {}
+    resp = client.post("/analyze", files={"file": ("p.png", panoramic_png)}, headers=headers)
+    assert resp.status_code == status
+
+
+@pytest.mark.parametrize(("code", "problem"), [("", "not set"), ("short", "at least 12")])
+def test_required_access_code_fails_closed(panoramic_png, code, problem):
+    client = client_with(Settings(access_code=code, require_access_code=True))
+    resp = client.post("/analyze", files={"file": ("p.png", panoramic_png)}, headers={"X-Access-Code": code})
+    assert resp.status_code == 503
+    assert problem in resp.json()["detail"]
+    health = client.get("/health").json()
+    assert health["access_code_required"] is True
+    assert problem in health["configuration_problem"]
+
+
+def test_health_and_viewer_stay_open_when_protected():
+    client = client_with(Settings(access_code=STRONG_CODE, require_access_code=True))
+    assert client.get("/health").status_code == 200
+    assert client.get("/").status_code == 200
 
 
 def test_classes_lists_finding_types():

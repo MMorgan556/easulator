@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
+
+import numpy as np
+from PIL import Image
 
 from .config import Settings
 from .detection import Detector
@@ -12,13 +17,25 @@ from .report import ReportGenerationError, ReportGenerator, TemplateReportGenera
 from .schemas import AnalysisResult, ImageModality
 
 
+PREVIEW_MAX_SIDE = 1600
+
+
+def encode_preview(pixels: np.ndarray, max_side: int = PREVIEW_MAX_SIDE) -> str:
+    """Downscaled PNG of the grayscale image, base64-encoded for JSON transport."""
+    img = Image.fromarray(pixels)
+    img.thumbnail((max_side, max_side), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 class Pipeline:
     def __init__(self, settings: Settings, detector: Detector, reporter: ReportGenerator):
         self.settings = settings
         self.detector = detector
         self.reporter = reporter
 
-    def analyze(self, data: bytes, with_report: bool = True) -> AnalysisResult:
+    def analyze(self, data: bytes, with_report: bool = True, with_preview: bool = False) -> AnalysisResult:
         loaded = load_image(data)
         info = loaded.info
         warnings: list[str] = []
@@ -34,6 +51,7 @@ class Pipeline:
         teeth, findings = build_findings(
             detections,
             image_width=info.width,
+            image_height=info.height,
             modality=info.modality,
             min_confidence=self.settings.min_confidence,
             review_confidence=self.settings.review_confidence,
@@ -58,4 +76,5 @@ class Pipeline:
             findings=findings,
             report=report,
             warnings=warnings,
+            preview_png=encode_preview(loaded.pixels) if with_preview else None,
         )
