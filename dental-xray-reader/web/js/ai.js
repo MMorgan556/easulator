@@ -168,6 +168,7 @@ export class Detector {
     this.worker = new Worker(workerUrl, { type: "module" });
     this.pending = new Map();
     this.nextId = 1;
+    this.failed = null;
     this.worker.onmessage = ({ data }) => {
       const entry = this.pending.get(data.id);
       if (!entry) return;
@@ -175,10 +176,28 @@ export class Detector {
       if (data.error) entry.reject(new Error(data.error));
       else entry.resolve(data);
     };
+    // A worker that fails to load or crashes never answers: fail everything waiting on it.
+    const fail = (reason) => {
+      this.failed = new Error(reason);
+      for (const entry of this.pending.values()) entry.reject(this.failed);
+      this.pending.clear();
+    };
+    this.worker.onerror = (e) => {
+      e.preventDefault?.();
+      fail(`The AI engine could not start${e.message ? ` (${e.message})` : ""}`);
+    };
+    this.worker.onmessageerror = () => fail("The AI engine sent an unreadable message");
     this.ready = this.call({ type: "load", url: manifest.url });
   }
 
+  terminate() {
+    this.worker.terminate();
+    for (const entry of this.pending.values()) entry.reject(new Error("AI engine stopped"));
+    this.pending.clear();
+  }
+
   call(message, transfer = []) {
+    if (this.failed) return Promise.reject(this.failed);
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });

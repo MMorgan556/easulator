@@ -42,7 +42,7 @@ const state = {
   pendingBox: null,
   reportEdited: false,
   counters: { manual: 0, measure: 0 },
-  ai: { manifest: null, detector: null, lastRun: null },
+  ai: { manifest: null, detector: null, lastRun: null, running: false },
 };
 
 // ---------------------------------------------------------------- helpers
@@ -127,13 +127,21 @@ function scheduleDisplay() {
   });
 }
 
+// Reused between frames so window/level drags don't allocate full-size arrays each time.
+const buffers = { windowed: null, inverted: null };
+function buffer(name, length) {
+  if (buffers[name]?.length !== length) buffers[name] = new Uint8Array(length);
+  return buffers[name];
+}
+
 function updateDisplay() {
   const image = state.image;
   if (!image) return;
   const def = image.defaultWindow;
+  const n = image.width * image.height;
   const isDefault = state.window.center === def.center && state.window.width === def.width;
-  let pixels = isDefault ? image.display : renderWindow(image, state.window.center, state.window.width);
-  if (state.invert) pixels = invert(pixels);
+  let pixels = isDefault ? image.display : renderWindow(image, state.window.center, state.window.width, buffer("windowed", n));
+  if (state.invert) pixels = invert(pixels, buffer("inverted", n));
   if (state.enhance) pixels = clahe(pixels, image.width, image.height);
   viewer.setDisplay(pixels);
   renderWindowControls();
@@ -223,11 +231,15 @@ async function initAi() {
 
 async function runAi() {
   const { manifest } = state.ai;
-  if (!manifest || !state.image) return;
+  const image = state.image;
+  if (!manifest || !image || state.ai.running) return;
+  state.ai.running = true;
+  renderAi();
   busy("Running AI on this device…");
   try {
     state.ai.detector ||= new Detector(manifest, new URL("./ai-worker.js", import.meta.url));
-    const { detections, milliseconds } = await state.ai.detector.detect(state.image);
+    const { detections, milliseconds } = await state.ai.detector.detect(image);
+    if (state.image !== image) return; // another X-ray was opened meanwhile; these results are stale
     state.toothDetections = detections.filter((d) => d.type === "tooth");
     state.otherDetections = detections.filter((d) => d.type !== "tooth");
     applyDetections();
@@ -237,11 +249,17 @@ async function runAi() {
     toast(`AI suggested ${n} finding${n === 1 ? "" : "s"} and found ${teeth} ${teeth === 1 ? "tooth" : "teeth"} in ${(milliseconds / 1000).toFixed(1)} s. Review each suggestion.`);
   } catch (err) {
     console.error(err);
-    toast(`AI analysis failed: ${err.message}`, "error");
+    // Start a fresh engine next time rather than reuse one that failed.
+    state.ai.detector?.terminate();
+    state.ai.detector = null;
+    if (state.image === image) toast(`AI analysis failed: ${err.message}`, "error");
   } finally {
+    state.ai.running = false;
     busy(null);
     renderAll();
   }
+  // If another X-ray was opened while this one was being analysed, analyse that one now.
+  if (state.image && state.image !== image) runAi();
 }
 
 /** (Re)build AI teeth and findings, keeping review decisions made so far. */
@@ -337,7 +355,7 @@ function renderAi() {
   const metrics = manifest.metrics && Object.keys(manifest.metrics).length ? ` Validation: ${Object.entries(manifest.metrics).map(([k, v]) => `${k} ${v}`).join(", ")}.` : "";
   $("ai-text").textContent = `${manifest.name || "Detector"} (${manifest.classes.length} classes, exported ${manifest.exported || "unknown"}).${metrics} Suggestions stay unreviewed until you confirm them.${lastRun ? ` Last run: ${(lastRun.milliseconds / 1000).toFixed(1)} s.` : ""}`;
   $("about-ai").textContent = `${manifest.name || "A detector"} runs in your browser with ONNX Runtime. Its suggestions are never added to the report until you confirm them.`;
-  $("ai-run").disabled = !state.image;
+  $("ai-run").disabled = !state.image || state.ai.running;
 }
 
 function findingSub(f) {
@@ -671,6 +689,9 @@ $("export-png").addEventListener("click", async () => {
   await nextFrame();
   try {
     download(await viewer.exportPng(), exportName("png"));
+  } catch (err) {
+    console.error(err);
+    toast(`Could not export the image: ${err.message}`, "error");
   } finally {
     busy(null);
   }
@@ -694,15 +715,25 @@ $("print-report").addEventListener("click", async () => {
   if (!state.image) return;
   busy("Preparing report…");
   await nextFrame();
-  const url = URL.createObjectURL(await viewer.exportPng());
-  const img = $("print-image");
-  img.onload = () => {
+  let url;
+  try {
+    url = URL.createObjectURL(await viewer.exportPng());
+    const img = $("print-image");
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("the annotated image could not be prepared"));
+      img.src = url;
+    });
+    $("print-text").textContent = $("report").value;
     busy(null);
     window.print();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-  $("print-text").textContent = $("report").value;
-  img.src = url;
+  } catch (err) {
+    console.error(err);
+    toast(`Could not prepare the printout: ${err.message}`, "error");
+  } finally {
+    busy(null);
+    if (url) setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 });
 
 $("about-open").addEventListener("click", () => $("about").showModal());

@@ -210,6 +210,105 @@
   "tolerance": 2
  },
  {
+  "name": "native_high_bits",
+  "file": "native_high_bits.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rle_high_bits",
+  "file": "rle_high_bits.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rle_signed_unextended",
+  "file": "rle_signed_unextended.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "rle_rgb_planar1",
+  "file": "rle_rgb_planar1.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "j2k_rgb",
+  "file": "j2k_rgb.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "jls_rgb",
+  "file": "jls_rgb.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "window_linear_exact",
+  "file": "window_linear_exact.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "voi_lut16",
+  "file": "voi_lut16.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "voi_lut8",
+  "file": "voi_lut8.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "modality_lut",
+  "file": "modality_lut.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "voi_lut_invalid",
+  "file": "voi_lut_invalid.dcm",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
   "name": "gray_png",
   "file": "gray_png.png",
   "width": 96,
@@ -221,6 +320,24 @@
  {
   "name": "rgb_png",
   "file": "rgb_png.png",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "gray16_png",
+  "file": "gray16_png.png",
+  "width": 96,
+  "height": 48,
+  "pixel_spacing_mm": null,
+  "modality": "panoramic",
+  "tolerance": 0
+ },
+ {
+  "name": "gray16_interlaced_png",
+  "file": "gray16_interlaced_png.png",
   "width": 96,
   "height": 48,
   "pixel_spacing_mm": null,

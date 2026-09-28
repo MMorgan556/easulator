@@ -45,10 +45,9 @@ export function subsample4(values, width, height) {
  * Map values linearly to 0-255 as ``(x - low) * scale`` with float32 steps, clipped and
  * rounded half to even (numpy float32 in-place arithmetic with weak Python scalars).
  */
-export function mapLinear(values, low, scale) {
+export function mapLinear(values, low, scale, out = new Uint8Array(values.length)) {
   const lo = f32(low);
   const s = f32(scale);
-  const out = new Uint8Array(values.length);
   for (let i = 0; i < values.length; i++) {
     let v = f32(f32(f32(values[i]) - lo) * s);
     if (v <= 0) v = 0;
@@ -103,8 +102,7 @@ export function rgbaToLuma(rgba) {
   return out;
 }
 
-export function invert(u8) {
-  const out = new Uint8Array(u8.length);
+export function invert(u8, out = new Uint8Array(u8.length)) {
   for (let i = 0; i < u8.length; i++) out[i] = 255 - u8[i];
   return out;
 }
@@ -189,13 +187,17 @@ export function histogram(u8) {
  * stretch, like app.ingest._load_raster for 8-bit input.
  */
 export function rasterToImage(rgba, width, height) {
-  const luma = rgbaToLuma(rgba);
-  const { lo, hi } = stretchRange(luma, width, height);
-  const display = hi > lo ? mapLinear(luma, lo, 255 / (hi - lo)) : new Uint8Array(luma.length);
+  return grayToImage(rgbaToLuma(rgba), width, height);
+}
+
+/** Grayscale samples (8- or 16-bit) to an image with the percentile-stretched display. */
+export function grayToImage(values, width, height) {
+  const { lo, hi } = stretchRange(values, width, height);
+  const display = hi > lo ? mapLinear(values, lo, 255 / (hi - lo)) : new Uint8Array(values.length);
   return {
     width,
     height,
-    values: luma,
+    values,
     display,
     defaultWindow: hi > lo ? windowFromRange(lo, hi) : { center: lo, width: 2 },
     inverted: false,

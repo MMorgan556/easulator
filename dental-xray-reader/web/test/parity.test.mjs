@@ -35,9 +35,12 @@ for (const c of cases.filter((c) => c.file.endsWith(".dcm") && c.name !== "jpeg_
 
 for (const c of cases.filter((c) => !c.file.endsWith(".dcm"))) {
   test(`image parity: ${c.name}`, async () => {
-    const { rasterToImage } = await import("../js/imaging.js");
+    const { grayToImage, rasterToImage } = await import("../js/imaging.js");
+    const { decodePng16 } = await import("../js/png16.js");
+    const png16 = await decodePng16(new Uint8Array(readFileSync(join(fixtures, c.file))));
     const rgba = new Uint8Array(readFileSync(join(fixtures, `${c.name}.rgba.bin`)));
-    const image = rasterToImage(rgba, c.width, c.height);
+    const image = png16 ? grayToImage(png16.values, png16.width, png16.height) : rasterToImage(rgba, c.width, c.height);
+    assert.equal(Boolean(png16), c.name.startsWith("gray16"), "16-bit decoder used exactly for 16-bit PNGs");
     const expected = new Uint8Array(readFileSync(join(fixtures, `${c.name}.expected.bin`)));
     compare(image.display, expected, c.tolerance);
   });
@@ -45,10 +48,10 @@ for (const c of cases.filter((c) => !c.file.endsWith(".dcm"))) {
 
 test("default window reproduces the default display exactly", async () => {
   const { renderWindow } = await import("../js/dicom.js");
-  for (const c of cases.filter((c) => c.file.endsWith(".dcm") && c.name !== "jpeg_baseline8" && c.name !== "window_sigmoid")) {
+  for (const c of cases.filter((c) => c.file.endsWith(".dcm") && c.name !== "jpeg_baseline8")) {
     const image = await decodeDicom(new Uint8Array(readFileSync(join(fixtures, c.file))), { dicomParser, codecs });
     const { center, width } = image.defaultWindow;
     const rendered = renderWindow(image, center, width);
-    compare(rendered, image.display, 1);
+    compare(rendered, image.display, 0);
   }
 });

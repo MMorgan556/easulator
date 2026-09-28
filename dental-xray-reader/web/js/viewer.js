@@ -40,14 +40,16 @@ export class Viewer {
 
   setDisplay(display) {
     const { width, height } = this.image;
-    const rgba = new Uint8ClampedArray(width * height * 4);
-    for (let i = 0, j = 0; i < display.length; i++, j += 4) {
-      rgba[j] = rgba[j + 1] = rgba[j + 2] = display[i];
-      rgba[j + 3] = 255;
+    // One RGBA buffer and canvas per image size, rewritten in place on every update.
+    if (!this.bitmap || this.bitmap.width !== width || this.bitmap.height !== height) {
+      this.bitmap = new OffscreenCanvas(width, height);
+      this.bitmapCtx = this.bitmap.getContext("2d");
+      this.imageData = new ImageData(width, height);
+      this.imageData.data.fill(255); // alpha stays opaque
     }
-    const canvas = new OffscreenCanvas(width, height);
-    canvas.getContext("2d").putImageData(new ImageData(rgba, width, height), 0, 0);
-    this.bitmap = canvas;
+    const rgba = this.imageData.data;
+    for (let i = 0, j = 0; i < display.length; i++, j += 4) rgba[j] = rgba[j + 1] = rgba[j + 2] = display[i];
+    this.bitmapCtx.putImageData(this.imageData, 0, 0);
     this.requestDraw();
   }
 

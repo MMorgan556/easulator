@@ -1,7 +1,8 @@
 // Opens a user-selected file entirely in the browser. Codecs are fetched lazily from vendor/.
 
 import { decodeDicom, ImageError, isDicom, MAX_PIXELS } from "./dicom.js";
-import { rasterToImage } from "./imaging.js";
+import { grayToImage, rasterToImage } from "./imaging.js";
+import { decodePng16, PngError } from "./png16.js";
 
 const vendor = new URL("../vendor/", import.meta.url);
 
@@ -66,6 +67,19 @@ async function decodeFile(file, bytes) {
   }
   if (/\.(tif|tiff)$/i.test(file.name)) {
     throw new ImageError("TIFF can't be opened in most browsers; export the X-ray as DICOM or PNG");
+  }
+  let png16;
+  try {
+    png16 = await decodePng16(bytes);
+  } catch (err) {
+    if (err instanceof PngError) throw new ImageError(`This PNG file is damaged: ${err.message}`);
+    throw err;
+  }
+  if (png16) {
+    if (png16.width * png16.height > MAX_PIXELS) {
+      throw new ImageError(`Image too large (${png16.width}x${png16.height}); the limit is ${MAX_PIXELS.toLocaleString("en-US")} pixels`);
+    }
+    return grayToImage(png16.values, png16.width, png16.height);
   }
   const { rgba, width, height } = await decodeToRgba(new Blob([bytes], { type: file.type || "application/octet-stream" }));
   return rasterToImage(rgba, width, height);

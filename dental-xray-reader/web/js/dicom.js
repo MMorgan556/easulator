@@ -4,7 +4,7 @@
 // Codecs are passed in so the same code runs in the browser (vendored wasm builds) and in
 // Node tests. Each codec getter returns a promise.
 
-import { mapLinear, toUint8, windowToUint8, invert, stretchRange } from "./imaging.js";
+import { invert, mapLinear, stretchRange, windowFromRange, windowToUint8 } from "./imaging.js";
 
 export const MAX_PIXELS = 20_000_000;
 
@@ -60,6 +60,44 @@ function firstNumber(ds, tag, fallback) {
   return values.length ? values[0] : fallback;
 }
 
+/**
+ * First item of a Modality or VOI LUT Sequence: { entries, firstMap, bits, data } or
+ * { error } when malformed (callers then behave like pydicom raising). null when absent.
+ */
+function readLut(sequence, pixelRepresentation, bigEndian) {
+  const item = sequence?.items?.[0]?.dataSet;
+  if (!sequence) return null;
+  if (!item) return { error: "empty LUT sequence" };
+  const descriptor = item.elements.x00283002;
+  const lutData = item.elements.x00283006;
+  if (!descriptor || descriptor.length < 6 || !lutData) return { error: "LUT descriptor or data missing" };
+  const entries = item.uint16("x00283002", 0) || 65536;
+  // The first mapped value is signed when the descriptor is SS (or, with implicit VR, for signed pixels).
+  const signedFirst = descriptor.vr === "SS" || (!descriptor.vr && pixelRepresentation === 1);
+  const firstMap = signedFirst ? item.int16("x00283002", 1) : item.uint16("x00283002", 1);
+  const bits = item.uint16("x00283002", 2);
+  if (lutData.length < entries * 2) return { error: "LUT data shorter than its descriptor" };
+  const dv = new DataView(item.byteArray.buffer, item.byteArray.byteOffset + lutData.dataOffset, entries * 2);
+  const data = new Uint16Array(entries);
+  for (let i = 0; i < entries; i++) data[i] = dv.getUint16(i * 2, !bigEndian);
+  return { entries, firstMap, bits, data };
+}
+
+/** pydicom's LUT lookup: values below firstMap take entry 0, above the table the last entry. */
+function applyLut(values, lut, outputBits) {
+  const out = outputBits <= 8 ? new Uint8Array(values.length) : new Uint16Array(values.length);
+  const max = outputBits <= 8 ? 255 : 65535;
+  for (let i = 0; i < lut.data.length; i++) if (lut.data[i] > max) throw new Error("LUT entry exceeds its bit depth");
+  const last = lut.entries - 1;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    let index = v >= lut.firstMap ? Math.trunc(v - lut.firstMap) : 0;
+    if (index > last) index = last;
+    out[i] = lut.data[index];
+  }
+  return out;
+}
+
 /** Header fields needed for decoding and display. No patient data is read. */
 export function readHeader(dicomParser, bytes) {
   let ds;
@@ -90,9 +128,15 @@ export function readHeader(dicomParser, bytes) {
     voiFunction: (ds.string("x00281056") || "LINEAR").trim().toUpperCase(),
     hasVoiLutSequence: Boolean(ds.elements.x00283010),
     hasModalityLutSequence: Boolean(ds.elements.x00283000),
+    voiLut: null,
+    modalityLut: null,
+    hasRescale: Boolean(ds.elements.x00281053 && ds.elements.x00281052),
     pixelSpacing: null,
     hint: ["x0008103e", "x00081030", "x00180015"].map((t) => ds.string(t) || "").join(" "),
   };
+  const bigEndian = header.transferSyntax === TS.EXPLICIT_BE;
+  header.voiLut = readLut(ds.elements.x00283010, header.pixelRepresentation, bigEndian);
+  header.modalityLut = readLut(ds.elements.x00283000, header.pixelRepresentation, bigEndian);
   for (const tag of ["x00280030", "x00181164"]) {
     const spacing = numbers(ds, tag);
     if (spacing.length >= 2 && spacing[0] > 0 && spacing[1] > 0) {
@@ -254,7 +298,9 @@ function toGrayscale(stored, header) {
   if (header.samples === 1) return stored;
   if (header.samples !== 3) throw new ImageError(`Unsupported Samples per Pixel: ${header.samples}`);
   const out = new Float32Array(n);
-  const planar = header.planar === 1 && !header.transferSyntax.startsWith("1.2.840.10008.1.2.4");
+  // Only native (uncompressed) data can be colour-by-plane; decoders here return interleaved samples.
+  const native = [TS.IMPLICIT_LE, TS.EXPLICIT_LE, TS.EXPLICIT_BE].includes(header.transferSyntax);
+  const planar = header.planar === 1 && native;
   for (let i = 0; i < n; i++) {
     const [r, g, b] = planar ? [stored[i], stored[i + n], stored[i + 2 * n]] : [stored[i * 3], stored[i * 3 + 1], stored[i * 3 + 2]];
     out[i] = Math.fround(Math.fround(Math.fround(r + g) + b) / 3);
@@ -282,16 +328,83 @@ export function linearWindow(header) {
   return { center, width };
 }
 
-/** DICOM SIGMOID VOI function (PS3.3 C.11.2.1.3.1), as pydicom applies it; null if not used. */
-function sigmoidWindow(header, values) {
-  if (header.hasVoiLutSequence || header.voiFunction !== "SIGMOID") return null;
-  const center = header.windowCenter[0];
-  const width = header.windowWidth[0];
-  if (!Number.isFinite(center) || !Number.isFinite(width) || width <= 0) return null;
-  const yMax = 2 ** header.bitsStored - 1;
-  const out = new Float64Array(values.length);
-  for (let i = 0; i < values.length; i++) out[i] = yMax / (1 + Math.exp((-4 * (values[i] - center)) / width));
+/** pydicom.apply_windowing output range (depends on modality LUT, signedness and rescale). */
+function windowingRange(header) {
+  let yMin;
+  let yMax;
+  if (header.modalityLut && !header.modalityLut.error) {
+    yMin = 0;
+    yMax = 2 ** header.modalityLut.bits - 1;
+  } else if (header.pixelRepresentation === 0) {
+    yMin = 0;
+    yMax = 2 ** header.bitsStored - 1;
+  } else {
+    yMin = -(2 ** (header.bitsStored - 1));
+    yMax = 2 ** (header.bitsStored - 1) - 1;
+  }
+  if (header.hasRescale) {
+    yMin = yMin * header.rescaleSlope + header.rescaleIntercept;
+    yMax = yMax * header.rescaleSlope + header.rescaleIntercept;
+  }
+  return { yMin, yRange: yMax - yMin };
+}
+
+/**
+ * pydicom.apply_voi_lut (prefer_lut=True): the VOI LUT Sequence if present, else the window
+ * with its VOI LUT Function. Returns { values, kind } or null; throws where pydicom raises.
+ */
+function applyVoi(values, header) {
+  if (header.voiLut) {
+    const lut = header.voiLut;
+    if (lut.error) throw new Error(lut.error);
+    const outBits = lut.bits === 8 ? 8 : lut.bits >= 10 && lut.bits <= 16 ? 16 : 0;
+    if (!outBits) throw new Error(`${lut.bits} bits per VOI LUT entry is not supported`);
+    return { values: applyLut(values, lut, outBits), kind: "lut" };
+  }
+  if (!header.windowCenter.length || !header.windowWidth.length) return null;
+  let center = header.windowCenter[0];
+  let width = header.windowWidth[0];
+  const fn = header.voiFunction;
+  const { yMin, yRange } = windowingRange(header);
+  if (fn === "LINEAR") {
+    if (width < 1) throw new Error("Window Width must be at least 1 for LINEAR");
+  } else if (fn === "LINEAR_EXACT" || fn === "SIGMOID") {
+    if (width <= 0) throw new Error(`Window Width must be above 0 for ${fn}`);
+  } else {
+    throw new Error(`Unsupported VOI LUT Function ${fn}`);
+  }
+  const out = voiWindow(values, fn, center, width, yMin, yRange, new Float64Array(values.length));
+  return { values: out, kind: fn, center, width, yMin, yRange };
+}
+
+/** pydicom.apply_windowing's LINEAR / LINEAR_EXACT / SIGMOID transfer functions, in float64. */
+function voiWindow(values, fn, center, width, yMin, yRange, out) {
+  if (fn === "SIGMOID") {
+    for (let i = 0; i < values.length; i++) out[i] = yRange / (1 + Math.exp((-4 * (values[i] - center)) / width)) + yMin;
+    return out;
+  }
+  if (fn === "LINEAR") {
+    center -= 0.5;
+    width -= 1;
+  }
+  const below = center - width / 2;
+  const above = center + width / 2;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    out[i] = v <= below ? yMin : v > above ? yMin + yRange : ((v - center) / width + 0.5) * yRange + yMin;
+  }
   return out;
+}
+
+/** Modality LUT Sequence, or the linear rescale in float32 (app.ingest semantics). */
+function modalityValues(gray, header) {
+  if (header.modalityLut) {
+    const lut = header.modalityLut;
+    if (lut.error) throw new Error(lut.error);
+    if (lut.bits !== 8 && lut.bits !== 16) throw new Error(`${lut.bits}-bit Modality LUT is not supported`);
+    return applyLut(gray, lut, lut.bits);
+  }
+  return rescale(gray, header);
 }
 
 /**
@@ -335,6 +448,8 @@ export async function decodeDicom(bytes, { dicomParser, codecs }) {
         frame = dicomParser.readEncapsulatedImageFrame(ds, pixelElement, 0, table);
       }
       stored = await decodeCompressed(header, frame, codecs);
+      // Like pydicom: drop bits above Bits Stored and sign-extend, whatever the codec returned.
+      if (!(header.transferSyntax === TS.JPEG_BASELINE || header.transferSyntax === TS.JPEG_EXTENDED)) stored = maskBitsStored(stored, header);
     } else {
       const bytesNeeded = (count * header.bitsAllocated) / 8;
       if (pixelElement.length < bytesNeeded) throw new ImageError("DICOM pixel data is shorter than the header says; the file is damaged or truncated");
@@ -347,20 +462,41 @@ export async function decodeDicom(bytes, { dicomParser, codecs }) {
   }
   if (stored.length < count) throw new ImageError("Decoded image is smaller than the DICOM header says");
 
-  const gray = toGrayscale(stored, header);
-  const values = rescale(gray, header);
-
-  const window = linearWindow(header);
+  let values;
   let display;
-  let displayWindow;
-  if (window) {
-    display = windowToUint8(values, window.center, window.width);
-    displayWindow = window;
-  } else {
-    const sigmoid = sigmoidWindow(header, values);
-    display = toUint8(sigmoid || values, columns, rows);
-    const { lo, hi } = stretchRange(values, columns, rows);
-    displayWindow = hi > lo ? { center: lo + 0.5 + (hi - lo) / 2, width: hi - lo + 1 } : { center: lo, width: 2 };
+  let defaultWindow;
+  let voiFunction = null; // null: plain linear window/level over `values`
+  try {
+    values = modalityValues(toGrayscale(stored, header), header);
+    const window = linearWindow(header);
+    if (window) {
+      display = windowToUint8(values, window.center, window.width);
+      defaultWindow = window;
+    } else {
+      let voi = null;
+      if (header.hasVoiLutSequence || header.voiFunction !== "LINEAR") {
+        try {
+          voi = applyVoi(values, header);
+        } catch {
+          voi = null; // like app.ingest: a malformed VOI is skipped, the stretch still gives an image
+        }
+      }
+      if (voi?.kind === "lut") values = voi.values; // later window/level works on the LUT output
+      const source = voi ? voi.values : values;
+      const { lo, hi } = stretchRange(source, columns, rows);
+      display = hi > lo ? mapLinear(source, lo, 255 / (hi - lo)) : new Uint8Array(source.length);
+      if (voi && voi.kind !== "lut" && voi.kind !== "LINEAR" && hi > lo) {
+        // Interactive window/level keeps the file's function and this stretch, so the default
+        // window reproduces the display exactly and adjusting it never jumps.
+        voiFunction = { kind: voi.kind, yMin: voi.yMin, yRange: voi.yRange, lo, hi };
+        defaultWindow = { center: voi.center, width: voi.width };
+      } else {
+        defaultWindow = hi > lo ? windowFromRange(lo, hi) : { center: lo, width: 2 };
+      }
+    }
+  } catch (err) {
+    if (err instanceof ImageError) throw err;
+    throw new ImageError(`Could not process DICOM image: ${err?.message || err}`);
   }
   const inverted = header.photometric === "MONOCHROME1";
   if (inverted) display = invert(display);
@@ -370,7 +506,8 @@ export async function decodeDicom(bytes, { dicomParser, codecs }) {
     height: rows,
     values,
     display,
-    defaultWindow: displayWindow,
+    defaultWindow,
+    voiFunction,
     inverted,
     format: "dicom",
     compression: TS_NAMES[header.transferSyntax] || header.transferSyntax,
@@ -380,9 +517,18 @@ export async function decodeDicom(bytes, { dicomParser, codecs }) {
   };
 }
 
-/** Interactive window/level over modality values (display only). */
-export function renderWindow(image, center, width) {
-  const low = center - 0.5 - (width - 1) / 2;
-  const u8 = mapLinear(image.values, low, 255 / Math.max(1e-6, width - 1));
-  return image.inverted ? invert(u8) : u8;
+/**
+ * Interactive window/level (display only), using the image's VOI function. ``out`` may be a
+ * reusable Uint8Array of the right size.
+ */
+export function renderWindow(image, center, width, out = new Uint8Array(image.values.length)) {
+  const voi = image.voiFunction;
+  if (voi) {
+    const y = voiWindow(image.values, voi.kind, center, Math.max(1e-6, width), voi.yMin, voi.yRange, new Float64Array(image.values.length));
+    mapLinear(y, voi.lo, 255 / (voi.hi - voi.lo), out);
+  } else {
+    mapLinear(image.values, center - 0.5 - (width - 1) / 2, 255 / Math.max(1e-6, width - 1), out);
+  }
+  if (image.inverted) invert(out, out);
+  return out;
 }

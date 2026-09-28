@@ -167,6 +167,51 @@ def main() -> None:
     save("jpeg_lossless8", gdcm_compress(dataset(pattern(8), BitsStored=8), "JPEGLosslessProcess14_1"), cases=cases)
     save("jpeg_baseline8", gdcm_compress(dataset(pattern(8), BitsStored=8), "JPEGBaselineProcess1"), cases=cases, tolerance=2)
 
+    # Edge cases: unused high bits, signed data stored without sign extension, planar RLE,
+    # colour JPEG 2000 / JPEG-LS, LINEAR_EXACT, VOI and Modality LUT Sequences.
+    ds = dataset(p12)
+    ds.PixelData = (p12 | 0xF000).astype(np.uint16).tobytes()
+    save("native_high_bits", ds, cases=cases)
+    ds = dataset(p12)
+    ds.PixelData = (p12 | 0xF000).astype(np.uint16).tobytes()
+    save("rle_high_bits", ds, compress=uid.RLELossless, cases=cases)
+    s12 = pattern(12, signed=True)
+    ds = dataset(s12)
+    ds.PixelData = (s12.astype(np.int32) & 0xFFF).astype(np.uint16).tobytes()
+    save("rle_signed_unextended", ds, compress=uid.RLELossless, cases=cases)
+    ds = dataset(rgb, BitsStored=8)
+    ds.compress(uid.RLELossless)
+    ds.PlanarConfiguration = 1
+    save("rle_rgb_planar1", ds, cases=cases)
+    save("j2k_rgb", dataset(rgb, BitsStored=8), compress=uid.JPEG2000Lossless, cases=cases)
+    save("jls_rgb", dataset(rgb, BitsStored=8), compress=uid.JPEGLSLossless, cases=cases)
+    save("window_linear_exact", dataset(p12, RescaleSlope=1, RescaleIntercept=0, WindowCenter=1500, WindowWidth=1200, VOILUTFunction="LINEAR_EXACT"), cases=cases)
+    for name, bits, table in [
+        ("voi_lut16", 16, (np.linspace(0, 1, 4096) ** 0.5 * 65535).astype(np.uint16)),
+        ("voi_lut8", 8, (np.linspace(0, 1, 2048) ** 2 * 255).astype(np.uint16)),
+    ]:
+        ds = dataset(p12, WindowCenter=100, WindowWidth=50)  # the LUT must win over the window
+        item = Dataset()
+        item.LUTDescriptor = [len(table), 1000 if bits == 8 else 0, bits]
+        if bits == 16:
+            item.add_new(0x00283006, "US", table.tolist())  # LUT Data as US values
+        else:
+            item.add_new(0x00283006, "OW", table.astype("<u2").tobytes())  # ... and as OW bytes
+        ds.VOILUTSequence = [item]
+        save(name, ds, cases=cases)
+    ds = dataset(p12, WindowCenter=30000, WindowWidth=40000)
+    item = Dataset()
+    item.LUTDescriptor = [4096, 0, 16]
+    item.add_new(0x00283006, "OW", (np.arange(4096) * 16 + 7).astype("<u2").tobytes())
+    ds.ModalityLUTSequence = [item]
+    save("modality_lut", ds, cases=cases)
+    ds = dataset(p12)
+    item = Dataset()
+    item.LUTDescriptor = [4096, 0, 9]  # unsupported depth: pydicom raises, ingest skips the VOI
+    item.add_new(0x00283006, "OW", np.arange(4096, dtype="<u2").tobytes())
+    ds.VOILUTSequence = [item]
+    save("voi_lut_invalid", ds, cases=cases)
+
     # Raster uploads (decoded by the browser, then Pillow's luma + percentile stretch).
     gray = Image.fromarray(pattern(8, seed=4))
     buf = io.BytesIO()
@@ -176,6 +221,15 @@ def main() -> None:
     buf = io.BytesIO()
     color.save(buf, format="PNG")
     write_case("rgb_png", buf.getvalue(), "png", cases)
+
+    # 16-bit grayscale PNGs (browsers only give 8 bits, so the app decodes these itself).
+    import png
+
+    g16 = (pattern(12, seed=5).astype(np.uint32) * 3 + 20000).astype(np.uint16)
+    for name, interlace in (("gray16_png", False), ("gray16_interlaced_png", True)):
+        buf = io.BytesIO()
+        png.Writer(W, H, greyscale=True, bitdepth=16, interlace=interlace).write(buf, g16.tolist())
+        write_case(name, buf.getvalue(), "png", cases)
 
     (OUT / "cases.json").write_text(json.dumps(cases, indent=1) + "\n")
     print(f"wrote {len(cases)} cases to {OUT}")

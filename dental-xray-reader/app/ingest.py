@@ -136,10 +136,40 @@ def _dicom_display_pixels(arr: np.ndarray, ds, samples: int) -> np.ndarray:
         # Lookup-table or non-linear VOI. If it is malformed, show the image without it rather
         # than reject it: the percentile stretch below still gives a usable picture.
         try:
-            arr = apply_voi_lut(arr, ds)
+            arr = _voi_lut_sequence(arr, ds) if ds.get("VOILUTSequence") else apply_voi_lut(arr, ds)
         except Exception:
             pass
     return to_uint8(arr, overwrite=True)  # arr is this function's private working array
+
+
+def _voi_lut_sequence(arr: np.ndarray, ds) -> np.ndarray:
+    """First VOI LUT Sequence item applied like pydicom.apply_voi, with a correct index type.
+
+    pydicom builds the lookup indices in the LUT's own dtype, so for 8-bit LUTs every index
+    wraps modulo 256 and the image collapses to a few gray levels.
+    """
+    item = ds.VOILUTSequence[0]
+    entries, first_map, bits = (int(v) for v in item.LUTDescriptor)
+    entries = entries or 65536
+    if bits == 8:
+        dtype = np.uint8
+    elif 10 <= bits <= 16:
+        dtype = np.uint16
+    else:
+        raise NotImplementedError(f"{bits} bits per VOI LUT entry is not supported")
+    element = item["LUTData"]
+    if element.VR == "OW":
+        order = "<" if ds.file_meta.TransferSyntaxUID.is_little_endian else ">"
+        raw = np.frombuffer(element.value, dtype=f"{order}u2", count=entries)
+    else:
+        raw = np.asarray(element.value, dtype=np.int64)[:entries]
+    if raw.size < entries or raw.max(initial=0) > np.iinfo(dtype).max:
+        raise ValueError("VOI LUT data does not match its descriptor")
+    lut = raw.astype(dtype)
+    # Values below the first mapped value take entry 0; above the table, the last entry.
+    index = np.where(arr >= first_map, arr - first_map, 0)
+    index = np.clip(index, 0, entries - 1).astype(np.int64)  # truncates, like pydicom's cast
+    return lut[index]
 
 
 def _pixel_spacing(ds) -> tuple[float, float] | None:
